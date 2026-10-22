@@ -1,0 +1,28 @@
+{
+  "name": "@key-holder/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js"
+  },
+  "dependencies": {
+    "@key-holder/shared": "*",
+    "fastify": "^4.28.1",
+    "jose": "^5.6.3",
+    "ulid": "^2.3.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^22.4.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.3",
+    "tsx": "^4.17.0"
+  }
+}

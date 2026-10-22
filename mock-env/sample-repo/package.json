@@ -1,0 +1,11 @@
+{
+  "name": "sample-service",
+  "version": "1.0.0",
+  "description": "Sample microservice targeted by AI agent for deployment",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"All sample tests passed\" && exit 0"
+  }
+}

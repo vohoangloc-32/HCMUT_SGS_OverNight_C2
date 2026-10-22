@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  # ── TideCloak ──────────────────────────────────────────────────────────────
+  # TODO(P1): Verify exact image name and version from TideCloak docs / Tide MCP.
+  # See docs/VERIFY_TIDECLOAK.md item TC-01.
+  tidecloak:
+    image: tideorg/tidecloak:latest   # TODO(P1): confirm image name/tag
+    container_name: key-holder-tidecloak
+    ports:
+      - "8080:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin          # dev only, change in production
+      # TODO(P1): add any required TideCloak env vars (license key path, etc.)
+    volumes:
+      - tidecloak_data:/opt/keycloak/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # ── Gateway ────────────────────────────────────────────────────────────────
+  gateway:
+    build:
+      context: .
+      dockerfile: packages/gateway/Dockerfile
+    container_name: key-holder-gateway
+    ports:
+      - "${GATEWAY_PORT:-3001}:3001"
+    environment:
+      - GATEWAY_PORT=3001
+      - TIDECLOAK_URL=http://tidecloak:8080
+      - TIDECLOAK_REALM=${TIDECLOAK_REALM:-key-holder}
+      - TIDECLOAK_CLIENT_ID=${TIDECLOAK_CLIENT_ID:-gateway-client}
+      - TIDECLOAK_CLIENT_SECRET=${TIDECLOAK_CLIENT_SECRET}
+      - DATABASE_PATH=/app/data/gateway.db
+      - QUORUM_REQUIRED=${QUORUM_REQUIRED:-2}
+      - QUORUM_TOTAL=${QUORUM_TOTAL:-3}
+      - ACTION_TTL_SECONDS=${ACTION_TTL_SECONDS:-3600}
+    volumes:
+      - gateway_data:/app/data
+    depends_on:
+      tidecloak:
+        condition: service_healthy
+
+  # ── Fake Production Server ─────────────────────────────────────────────────
+  fake-production:
+    build:
+      context: ./mock-env/fake-production
+    container_name: key-holder-fake-production
+    ports:
+      - "${FAKE_PRODUCTION_PORT:-4001}:4001"
+
+  # ── Fake External Endpoint ─────────────────────────────────────────────────
+  fake-external:
+    build:
+      context: ./mock-env/fake-external
+    container_name: key-holder-fake-external
+    ports:
+      - "${FAKE_EXTERNAL_PORT:-4002}:4002"
+
+volumes:
+  tidecloak_data:
+  gateway_data:
