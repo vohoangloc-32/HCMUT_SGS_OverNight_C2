@@ -5,7 +5,7 @@ services:
   # TODO(P1): Verify exact image name and version from TideCloak docs / Tide MCP.
   # See docs/VERIFY_TIDECLOAK.md item TC-01.
   tidecloak:
-    image: tideorg/tidecloak:latest   # TODO(P1): confirm image name/tag
+    image: tideorg/tidecloak-dev:latest
     container_name: key-holder-tidecloak
     ports:
       - "8080:8080"

@@ -17,52 +17,50 @@
 
 ---
 
-## TideCloak Integration
+## TideCloak Integration (P1 Verification)
 
-### [UNRESOLVED] TC-01 — TideCloak Docker image name and tag
-- **Evidence**: Not yet verified
-- **Decision**: Using `tideorg/tidecloak:latest` as placeholder in docker-compose.yml
-- **Impact**: `make docker-up` will fail until the correct image name is confirmed
-- **Fallback**: P1 to run `tide_playbook` → `deploy-tidecloak-docker` and update docker-compose.yml
+### [VERIFIED] TC-01 — TideCloak Docker image name and tag
+- **Evidence**: `tide_playbook deploy-tidecloak-docker`, verified from `tidecloak-override` source tree.
+- **Decision**: Use `tideorg/tidecloak-dev:latest`. Embedded H2 DB, T=14/N=20 production network defaults, pre-imports `myrealm`.
+- **Impact**: Updated in `docker-compose.yml`. Preconfigured entrypoint (do NOT append `start-dev`).
 - **Owner**: P1
 
-### [UNRESOLVED] TC-02 — Custom N-of-M quorum for arbitrary actions
-- **Evidence**: Not yet verified. TideCloak IGA quorum formula is `max(1, floor(TotalAdmins * 0.7))` for admin changes (verified from Tide MCP `canon/feature-mapping`). Whether arbitrary application-level actions can use the same mechanism is unknown.
-- **Decision**: Gateway implements its own quorum count as fallback; TideCloak quorum treated as aspirational.
-- **Impact**: If unsupported natively, quorum is enforced in the gateway only — still single-server trust, not cryptographic multi-party.
-- **Fallback**: Gateway-side approval counter with JWT-verified guardian identities.
+### [VERIFIED / FALLBACK] TC-02 — Custom N-of-M quorum for arbitrary actions
+- **Evidence**: `tide_canon feature-mapping` (IGA change requests scope) & `tide_canon custom-contracts`.
+  1. TideCloak IGA change-requests gate 18 administrative actions with a fixed formula `max(1, floor(TotalAdmins * 0.7))`. It does not support arbitrary application actions.
+  2. Custom Forseti contracts can enforce signing policies, but deployment is non-self-service (requires Tide team manual deployment).
+  3. GAP-064/GAP-063: Autonomous agents cannot authenticate or sign; only human browser sessions can hold credentials.
+- **Decision**: Gateway-level quorum engine (`QuorumEngine.ts`) enforcing 2-of-3 quorum across independent TideCloak Guardian tokens (`guardian` role).
+- **Impact**: Authentication & guardian role claims are genuine TideCloak (PRISM threshold password verification + VVK threshold signatures). Quorum counting is enforced in the Gateway process.
 - **Owner**: P1
 
-### [UNRESOLVED] TC-03 — Content-bound / parameter-bound approvals
-- **Evidence**: Not yet verified. TideCloak IGA approvals are for admin change-set objects, not arbitrary parameters.
-- **Decision**: Gateway implements canonical parameter hashing (`packages/gateway/src/crypto/`); each approval record stores the hash; gateway verifies hash before execution.
-- **Impact**: If TideCloak can bind approvals to a content hash natively, this fallback can be removed.
-- **Fallback**: In-gateway hash verification (already implemented as fallback).
+### [VERIFIED / FALLBACK] TC-03 — Content-bound / parameter-bound approvals
+- **Evidence**: `tide_canon custom-contracts`. Built-in contracts do not inspect application payload bytes.
+- **Decision**: Gateway canonical parameter hashing (`packages/gateway/src/crypto/canonicalParamsHash.ts`). Every approval binds to `parametersHash`; gateway halts execution if parameters or hash differ (`HASH_MISMATCH`).
+- **Impact**: Tamper-proofing against parameter swap (Scenario 5) is cryptographically deterministic in the gateway layer.
 - **Owner**: P1
 
-### [UNRESOLVED] TC-04 — Tag-based encryption for server-side secrets
-- **Evidence**: TideCloak E2EE (self-encryption) requires live Fabric participation and client-side decrypt. Server-side encrypted secrets that the gateway decrypts on behalf of the agent is a different flow (policy-governed encryption / Forseti contract). Not yet verified.
-- **Decision**: Stub TideAdapter.encryptSecret / decryptSecret; gateway stores plaintext secrets in mock for demo.
-- **Impact**: Without this, the "DB shows only ciphertext" claim cannot be demonstrated.
-- **Fallback**: AES-256-GCM with a key stored in env var (still better than plaintext, but not Tide-specific).
+### [VERIFIED / FALLBACK] TC-04 — Tag-based encryption for server-side secrets
+- **Evidence**: `tide_canon feature-mapping` (E2EE section) & GAP-064. Self-encryption (`doEncrypt`/`doDecrypt`) requires browser Web Enclave; headless server processes cannot hold dokens. Policy-governed shared encryption requires a custom deployed Forseti contract.
+- **Decision**: Gateway stores secrets encrypted in SQLite/DB (AES-256-GCM fallback). Raw secret values are never returned to the agent or MCP server (least-privilege execution).
+- **Impact**: Protects raw secrets from agent exfiltration (Scenario 3 & 4); clearly marked as gateway-encrypted fallback.
 - **Owner**: P1
 
-### [UNRESOLVED] TC-05 — Which SDK to use (JS vs .NET Asgard)
-- **Evidence**: Tide MCP `canon/feature-mapping` shows JS SDK surface (`doLogin`, `useTideCloak`, `doEncrypt`). .NET Asgard SDK exists but is for different stack.
-- **Decision**: Using JS/TypeScript SDK for gateway + React UI.
-- **Impact**: If Tide recommends .NET for server-side JWT verification, a wrapper or alternative will be needed.
-- **Fallback**: `jose` library for JWT verification using embedded JWKS from adapter JSON (pattern verified in `canon/feature-mapping`).
+### [VERIFIED] TC-05 — Which SDK to use for JWT Verification
+- **Evidence**: `tide_canon feature-mapping` & `keylessh (server/lib/auth/tideJWT.ts)`.
+- **Decision**: Node.js + `jose` library in `packages/gateway/src/tide/TideAdapter.ts`. Local offline verification using embedded JWKS from adapter JSON (`config.jwk`).
+- **Impact**: Full cryptographic verification of VVK threshold signatures without external runtime dependencies or .NET overhead.
 - **Owner**: P1
 
-### [UNRESOLVED] TC-06 — Dev license activation steps
-- **Evidence**: `setUpTideRealm` endpoint provisions a free-tier license (verified from Tide MCP). Exact activation steps (email required, license JSON returned) not yet walked through.
-- **Decision**: Document in docs/VERIFY_TIDECLOAK.md as checklist item.
-- **Impact**: Without license activation, IGA and E2EE features do not work.
+### [VERIFIED] TC-06 — Dev license activation steps
+- **Evidence**: `tide_playbook deploy-tidecloak-docker` and `tide_canon tidecloak-bootstrap`.
+- **Decision**: `POST /admin/realms/{realm}/tideAdminResources/setUpTideRealm` with `Content-Type: application/x-www-form-urlencoded` (`email`, `TIDE_TERMS_ACCEPTED=yes`).
+- **Impact**: Scripted in realm setup sequence; requires user acceptance of legal terms.
 - **Owner**: P1
 
 ---
 
-## Architecture
+## Architecture & Policy
 
 ### [ASSUMED] A-01 — SQLite for Action Request store
 - **Evidence**: Hackathon timebox; simplicity. Cross-platform compatibility without native C++ compilation (node-gyp) errors on Node 24/Windows.
@@ -72,18 +70,18 @@
 
 ### [ASSUMED] A-02 — Fastify for gateway HTTP server
 - **Evidence**: Fastify is fast, TypeScript-native, well-suited for JSON APIs.
-- **Decision**: Using Fastify. If P1 prefers Express, switch is trivial since routes are stubs.
-- **Impact**: Minor; only affects `packages/gateway/src/server.ts`.
+- **Decision**: Using Fastify for `packages/gateway/src/server.ts`.
+- **Impact**: Minor; high throughput and native JSON schema validation.
 
-### [ASSUMED] A-03 — Proposer cannot approve their own request
+### [VERIFIED] A-03 — Proposer cannot approve their own request
 - **Evidence**: Principle of least privilege; four-eyes principle consistent with TideCloak IGA (AP-G03 in Tide MCP).
-- **Decision**: Gateway rejects approval if `guardianId === request.proposer.userId`.
-- **Impact**: Enforced in gateway quorum engine; must be enforced in TideAdapter too if/when Tide quorum is used.
+- **Decision**: Gateway rejects approval with `SELF_APPROVAL` if `guardianId === request.proposer.userId`.
+- **Impact**: Enforced in gateway quorum engine.
 
 ### [FAKED] F-01 — InMemoryQuorumEngine
-- **Evidence**: TideCloak quorum for application-level actions not yet verified.
+- **Evidence**: Dev stub for UI development before live TideCloak setup.
 - **Decision**: `InMemoryQuorumEngine` counts approvals in memory; no cryptographic guarantees.
-- **Impact**: Demo shows the UX flow; security claim "cryptographically enforced by TideCloak" is pending P1 verification.
+- **Impact**: Kept behind a configuration toggle (`QUORUM_ENGINE=inmemory|tide`) for offline testing and CI.
 - **Label**: Clearly marked as `FAKE` / `InMemory` in all source files.
 
 ### [FAKED] F-02 — Mock executors
@@ -93,11 +91,11 @@
 
 ---
 
-## Open Questions
+## Open Questions Status
 
-- [ ] TC-01: Correct TideCloak Docker image name?
-- [ ] TC-02: Can TideCloak enforce application-level N-of-M quorum cryptographically?
-- [ ] TC-03: Can approvals be bound to a content hash natively in TideCloak?
-- [ ] TC-04: Can the gateway decrypt a TideCloak-encrypted secret server-side (policy-governed encryption)?
-- [ ] TC-05: Is the JS SDK sufficient for server-side JWT verification in Node.js?
-- [ ] TC-06: Exact dev license activation flow?
+- [x] TC-01: Correct TideCloak Docker image name? -> `tideorg/tidecloak-dev:latest`
+- [x] TC-02: Can TideCloak enforce application-level N-of-M quorum cryptographically? -> Unsupported natively without custom Forseti contract; Gateway-level quorum engine backed by Tide guardian tokens.
+- [x] TC-03: Can approvals be bound to a content hash natively in TideCloak? -> Unsupported natively; Gateway canonical parameter hash (`canonicalParamsHash`) fallback.
+- [x] TC-04: Can the gateway decrypt a TideCloak-encrypted secret server-side? -> Unsupported for headless server; Gateway AES-256-GCM fallback with opaque handles.
+- [x] TC-05: Is the JS SDK sufficient for server-side JWT verification in Node.js? -> Yes, `jose` with local JWKS.
+- [x] TC-06: Exact dev license activation flow? -> `setUpTideRealm` with `x-www-form-urlencoded`.
