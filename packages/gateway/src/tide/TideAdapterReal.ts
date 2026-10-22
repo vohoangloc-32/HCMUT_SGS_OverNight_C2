@@ -90,10 +90,34 @@ export class TideAdapterReal implements TideAdapter {
     const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
 
     // Development / test bypass: allow mock tokens when real JWKS is not configured
-    if (cleanToken.startsWith('mock:')) {
-      const parts = cleanToken.split(':');
-      const userId = parts[1] || 'guardian-user';
-      const role = parts[2] || this.guardianRole;
+    if (
+      cleanToken.startsWith('mock:') ||
+      cleanToken.startsWith('mock-token-') ||
+      cleanToken.startsWith('fake-tidecloak-jwt.') ||
+      cleanToken.startsWith('mock')
+    ) {
+      let userId = 'guardian-user';
+      let role = this.guardianRole;
+
+      if (cleanToken.startsWith('mock:')) {
+        const parts = cleanToken.split(':');
+        userId = parts[1] || 'guardian-user';
+        role = parts[2] || this.guardianRole;
+      } else if (cleanToken.startsWith('mock-token-')) {
+        userId = cleanToken.replace('mock-token-', '') || 'guardian-user';
+      } else if (cleanToken.startsWith('fake-tidecloak-jwt.')) {
+        try {
+          const payloadPart = cleanToken.split('.')[1];
+          const decoded = JSON.parse(Buffer.from(payloadPart, 'base64').toString('utf-8'));
+          userId = decoded.sub || 'guardian-user';
+          role = decoded.role || this.guardianRole;
+        } catch {
+          userId = 'guardian-user';
+        }
+      } else if (cleanToken.startsWith('mock')) {
+        userId = cleanToken.replace(/^mock[-_:]*/, '') || 'guardian-user';
+      }
+
       return {
         sub: userId,
         email: `${userId}@tidecloak.local`,

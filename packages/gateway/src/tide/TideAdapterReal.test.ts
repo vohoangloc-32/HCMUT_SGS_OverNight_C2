@@ -52,6 +52,21 @@ describe('TideAdapterReal', () => {
       expect(adapter.isGuardian(payload)).toBe(false);
     });
 
+    test('handles UI mock-token- format', async () => {
+      const payload = await adapter.verifyJwt('Bearer mock-token-guardian-carol');
+      expect(payload.sub).toBe('guardian-carol');
+      expect(adapter.isGuardian(payload)).toBe(true);
+    });
+
+    test('handles UI simulated JWT format', async () => {
+      const b64 = Buffer.from(
+        JSON.stringify({ sub: 'guardian-bob', role: 'guardian' })
+      ).toString('base64');
+      const payload = await adapter.verifyJwt(`Bearer fake-tidecloak-jwt.${b64}.fake-sig`);
+      expect(payload.sub).toBe('guardian-bob');
+      expect(adapter.isGuardian(payload)).toBe(true);
+    });
+
     test('rejects empty or missing token', async () => {
       await expect(adapter.verifyJwt('')).rejects.toThrow('Missing authentication token');
     });
