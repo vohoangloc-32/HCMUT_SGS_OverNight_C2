@@ -22,7 +22,10 @@ import {
   DeployParametersSchema,
   UseSecretParametersSchema,
   SendExternalParametersSchema,
+  CodeChangeParametersSchema,
 } from '@key-holder/shared';
+import { execSync } from 'child_process';
+import { createHash } from 'crypto';
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? 'http://localhost:3001';
 const PROPOSER_USER_ID = process.env.MCP_PROPOSER_USER_ID ?? 'mcp-agent';
@@ -97,6 +100,29 @@ const TOOLS = [
         id: { type: 'string', description: 'Action Request ID (ULID) to check' },
       },
       required: ['id'],
+    },
+  },
+  {
+    name: 'request_code_change',
+    description:
+      'Request to apply a code change to the protected repository. The tool captures the ' +
+      'current git diff in the agent workspace and sends the patch to the gateway for ' +
+      'guardian approval. The tool NEVER applies the patch; it only creates an action request. ' +
+      'The patch is applied only after N-of-M guardian approval and passing tests.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        title: { type: 'string', description: 'Short title for the code change (max 200 chars)' },
+        description: {
+          type: 'string',
+          description: 'Detailed description of what the change does and why (max 2000 chars)',
+        },
+        workspace_path: {
+          type: 'string',
+          description: 'Absolute path to the agent workspace where the changes were made',
+        },
+      },
+      required: ['title', 'description', 'workspace_path'],
     },
   },
 ];

@@ -7,6 +7,7 @@ import { appendAudit, deserialize } from './actions.js';
 import { deployExecutor } from '../executor/deployExecutor.js';
 import { useSecretExecutor } from '../executor/useSecretExecutor.js';
 import { sendExternalExecutor } from '../executor/sendExternalExecutor.js';
+import { codeChangeExecutor } from '../executor/codeChangeExecutor.js';
 import type { ActionRequest } from '@key-holder/shared';
 
 interface RoutesOptions {
@@ -22,43 +23,46 @@ export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions)
   app.post('/actions/:id/approve', async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const bodyRaw = (request.body ?? {}) as Record<string, unknown>;
-    const bodyGuardianId = typeof bodyRaw.guardianId === 'string' ? bodyRaw.guardianId : undefined;
-
-    // JWT verification
+    // JWT verification — strictly require Authorization: Bearer token
     const authHeader = request.headers.authorization ?? '';
-    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-
-    let guardianId: string | undefined = bodyGuardianId;
-    let jwtPayload: TideJwtPayload | null = null;
-
-    if (token) {
-      try {
-        jwtPayload = await tideAdapter.verifyJwt(token);
-        guardianId = jwtPayload.sub;
-
-        // Enforce guardian role
-        if (!tideAdapter.isGuardian(jwtPayload)) {
-          return reply.status(403).send({
-            error: {
-              code: ERROR_CODES.FORBIDDEN,
-              message: 'Token does not hold the required guardian role',
-            },
-          });
-        }
-      } catch (err: unknown) {
-        const e = err as Error;
-        return reply.status(401).send({
-          error: { code: ERROR_CODES.UNAUTHORIZED, message: e.message || 'Invalid token' },
-        });
-      }
-    }
-
-    if (!guardianId) {
+    if (!authHeader.startsWith('Bearer ') && !authHeader.startsWith('bearer ')) {
       return reply.status(401).send({
-        error: { code: ERROR_CODES.UNAUTHORIZED, message: 'Missing guardian identity or token' },
+        error: {
+          code: ERROR_CODES.UNAUTHORIZED,
+          message: 'Missing Authorization header with Bearer token',
+        },
       });
     }
+
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
+      return reply.status(401).send({
+        error: { code: ERROR_CODES.UNAUTHORIZED, message: 'Missing authentication token' },
+      });
+    }
+
+    let jwtPayload: TideJwtPayload;
+    try {
+      jwtPayload = await tideAdapter.verifyJwt(token);
+    } catch (err: unknown) {
+      const e = err as Error;
+      return reply.status(401).send({
+        error: { code: ERROR_CODES.UNAUTHORIZED, message: e.message || 'Invalid token' },
+      });
+    }
+
+    // Enforce guardian role
+    if (!tideAdapter.isGuardian(jwtPayload)) {
+      return reply.status(403).send({
+        error: {
+          code: ERROR_CODES.FORBIDDEN,
+          message: 'Token does not hold the required guardian role',
+        },
+      });
+    }
+
+    // Derive guardianId ONLY from verified token claims; body guardianId is ignored
+    const guardianId = jwtPayload.sub;
 
     const parseResult = ApproveRequestBodySchema.safeParse(request.body);
     if (!parseResult.success) {
@@ -77,7 +81,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions)
     const actionRequest = deserialize(row as Record<string, unknown>);
 
     // Expiry check
-    if (new Date(actionRequest.expiresAt) < new Date()) {
+    if (new Date(actionRequest.expiresAt) < new Date() || actionRequest.status === 'expired') {
       db.prepare("UPDATE action_requests SET status = 'expired' WHERE id = ?").run(id);
       appendAudit(db, id, 'expired', 'system', { at: new Date().toISOString() });
       return reply.status(409).send({
@@ -155,12 +159,20 @@ export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions)
       });
 
       // Dispatch execution
-      const result = await executeAction(actionRequest, db, tideAdapter);
+      const approverIds = updated.approvals
+        .filter((a) => a.decision === 'approve')
+        .map((a) => a.guardianId);
+      const result = await executeAction(actionRequest, db, tideAdapter, approverIds);
       executionResult = result;
       executed = result.ok;
 
-      db.prepare("UPDATE action_requests SET status = 'executed' WHERE id = ?").run(id);
-      appendAudit(db, id, 'executed', 'system', {
+      const finalStatus = result.ok ? 'executed' : 'failed';
+      db.prepare('UPDATE action_requests SET approvals = ?, status = ? WHERE id = ?').run(
+        JSON.stringify(updated.approvals),
+        finalStatus,
+        id
+      );
+      appendAudit(db, id, result.ok ? 'executed' : 'execution-failed', 'system', {
         ok: result.ok,
         detail: result.detail,
         parametersHash: actionRequest.parametersHash,
@@ -180,30 +192,49 @@ export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions)
   app.post('/actions/:id/reject', async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const bodyRaw = (request.body ?? {}) as Record<string, unknown>;
-    const bodyGuardianId = typeof bodyRaw.guardianId === 'string' ? bodyRaw.guardianId : undefined;
-    const reason = typeof bodyRaw.reason === 'string' ? bodyRaw.reason : undefined;
-
+    // JWT verification — strictly require Authorization: Bearer token
     const authHeader = request.headers.authorization ?? '';
+    if (!authHeader.startsWith('Bearer ') && !authHeader.startsWith('bearer ')) {
+      return reply.status(401).send({
+        error: {
+          code: ERROR_CODES.UNAUTHORIZED,
+          message: 'Missing Authorization header with Bearer token',
+        },
+      });
+    }
+
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-
-    let guardianId: string | undefined = bodyGuardianId;
-
-    if (token) {
-      try {
-        const payload = await tideAdapter.verifyJwt(token);
-        guardianId = payload.sub;
-      } catch (err: unknown) {
-        const e = err as Error;
-        return reply.status(401).send({
-          error: { code: ERROR_CODES.UNAUTHORIZED, message: e.message || 'Invalid token' },
-        });
-      }
+    if (!token) {
+      return reply.status(401).send({
+        error: { code: ERROR_CODES.UNAUTHORIZED, message: 'Missing authentication token' },
+      });
     }
 
-    if (!guardianId) {
-      guardianId = 'guardian-anonymous';
+    let jwtPayload: TideJwtPayload;
+    try {
+      jwtPayload = await tideAdapter.verifyJwt(token);
+    } catch (err: unknown) {
+      const e = err as Error;
+      return reply.status(401).send({
+        error: { code: ERROR_CODES.UNAUTHORIZED, message: e.message || 'Invalid token' },
+      });
     }
+
+    // Enforce guardian role
+    if (!tideAdapter.isGuardian(jwtPayload)) {
+      return reply.status(403).send({
+        error: {
+          code: ERROR_CODES.FORBIDDEN,
+          message: 'Token does not hold the required guardian role',
+        },
+      });
+    }
+
+    // Derive guardianId ONLY from verified token
+    const guardianId = jwtPayload.sub;
+
+    const bodyRaw = (request.body ?? {}) as Record<string, unknown>;
+    const reason = typeof bodyRaw.reason === 'string' ? bodyRaw.reason : undefined;
 
     const row = db.prepare('SELECT * FROM action_requests WHERE id = ?').get(id);
     if (!row) {
@@ -232,7 +263,8 @@ export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions)
 async function executeAction(
   req: ActionRequest,
   db: Db,
-  tideAdapter: TideAdapter
+  tideAdapter: TideAdapter,
+  approverIds: string[] = []
 ): Promise<{ ok: boolean; detail: string; handle?: string }> {
   switch (req.tool) {
     case 'request_deploy':
@@ -245,6 +277,8 @@ async function executeAction(
       );
     case 'request_send_external':
       return sendExternalExecutor(req.parameters as { destination: string; payload_ref: string });
+    case 'request_code_change':
+      return codeChangeExecutor(req, approverIds);
     default:
       return { ok: false, detail: `Unknown tool: ${req.tool as string}` };
   }

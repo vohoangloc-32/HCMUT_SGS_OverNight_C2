@@ -40,6 +40,14 @@ export const SendExternalParametersSchema = z.object({
   payload_ref: z.string().min(1).max(500),
 });
 
+export const CodeChangeParametersSchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().min(1).max(2000),
+  patch: z.string().min(1),
+  baseSha: z.string().regex(/^[0-9a-f]{7,40}$/, 'Must be a hex commit hash'),
+  filesTouched: z.array(z.string().min(1)),
+});
+
 // ── Core schemas ──────────────────────────────────────────────────────────────
 
 export const ProposerSchema = z.object({

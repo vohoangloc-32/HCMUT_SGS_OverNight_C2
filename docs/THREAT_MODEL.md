@@ -36,6 +36,10 @@ To maintain strict truth-in-documentation, the system separates capabilities acr
 | | **AES-256-GCM Secret Store**: Secret table holds authenticated ciphertext only; key is in process memory/env. *(NOT Tide tag encryption, which requires browser enclave).* | |
 
 > [!IMPORTANT]
+> **Tide's Role in this Demonstration**:
+> Tide's role is **implemented in code and unit tests, NOT demonstrated live in this demo**.
+> When running locally without a live TideCloak container, the gateway operates in DEV token mode (signed via `DEV_TOKEN_SECRET`, logging startup warning `⚠️ DEV TOKENS ACTIVE: not Tide identity`). Dev tokens are strictly for local development and scenario testing and are **never presented as Tide identity**.
+>
 > **Terminology Discipline**:
 > - We do **NOT** claim *"Tide enforces quorum"* — the gateway's internal quorum engine tallies approvals backed by TideCloak guardian identities.
 > - We do **NOT** claim *"Tide encrypts our secrets"* — server-side secret storage uses AES-256-GCM authenticated encryption because Tide tag encryption requires client browser Web Enclaves.

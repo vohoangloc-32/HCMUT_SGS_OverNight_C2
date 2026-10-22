@@ -72,12 +72,17 @@ else
   echo -e "${YELLOW}[MOCK MODE] Parameter Hash: ${PARAMS_HASH}${NC}"
 fi
 
-echo -e "\n${YELLOW}Step 2: Guardian 1 (Alice) approves${NC}"
+echo -e "\n${YELLOW}Step 2: Guardian 1 (Alice) logs in and approves${NC}"
 if [ "$IS_LIVE" -eq 1 ]; then
+  ALICE_TOKEN=$(curl -s -X POST "${GATEWAY_URL}/auth/dev-token" \
+    -H "Content-Type: application/json" \
+    -d '{"userId": "guardian-alice", "role": "guardian"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+  echo "Obtained Dev Token for Guardian Alice (DEV TOKENS ACTIVE: not Tide identity)"
+
   APPROVE1_RES=$(curl -s -X POST "${GATEWAY_URL}/actions/${ACTION_ID}/approve" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${ALICE_TOKEN}" \
     -d "{
-      \"guardianId\": \"guardian-alice\",
       \"parametersHash\": \"${PARAMS_HASH}\"
     }")
   STATUS1=$(echo "$APPROVE1_RES" | grep -o '"status":"[^"]*' | cut -d'"' -f4)
@@ -87,12 +92,17 @@ else
   echo -e "${YELLOW}[MOCK MODE] Approvals: 1 of 2 required. Status: approved (partial quorum).${NC}"
 fi
 
-echo -e "\n${YELLOW}Step 3: Guardian 2 (Bob) approves (Reaching 2-of-3 Quorum)${NC}"
+echo -e "\n${YELLOW}Step 3: Guardian 2 (Bob) logs in and approves (Reaching 2-of-3 Quorum)${NC}"
 if [ "$IS_LIVE" -eq 1 ]; then
+  BOB_TOKEN=$(curl -s -X POST "${GATEWAY_URL}/auth/dev-token" \
+    -H "Content-Type: application/json" \
+    -d '{"userId": "guardian-bob", "role": "guardian"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+  echo "Obtained Dev Token for Guardian Bob (DEV TOKENS ACTIVE: not Tide identity)"
+
   APPROVE2_RES=$(curl -s -X POST "${GATEWAY_URL}/actions/${ACTION_ID}/approve" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${BOB_TOKEN}" \
     -d "{
-      \"guardianId\": \"guardian-bob\",
       \"parametersHash\": \"${PARAMS_HASH}\"
     }")
   STATUS2=$(echo "$APPROVE2_RES" | grep -o '"status":"[^"]*' | cut -d'"' -f4)

@@ -13,4 +13,6 @@ export default {
       },
     ],
   },
+  testMatch: ['<rootDir>/src/**/*.test.ts'],
+  setupFiles: ['dotenv/config'],
 };

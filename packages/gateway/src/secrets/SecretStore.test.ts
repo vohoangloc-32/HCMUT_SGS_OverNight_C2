@@ -4,7 +4,10 @@ import { SecretStore } from './SecretStore.js';
 
 describe('SecretStore (Encrypted Server-Side Storage)', () => {
   const db = initDb(':memory:');
-  const adapter = new TideAdapterReal();
+  const adapter = new TideAdapterReal({
+    encryptionKey: 'test-secret-key-for-testing-12345',
+    devTokenSecret: 'test-dev-token-secret-12345',
+  });
 
   it('stores secrets encrypted and rejects plaintext storage', async () => {
     // Encrypt and persist a fake secret

@@ -51,6 +51,8 @@ grep -A 10 "ATTACKER PROMPT INJECTION PAYLOAD" mock-env/fixtures/malicious-issue
 
 TARGET_DEST="http://localhost:4002/receive"
 
+DEMO_FAST_EXPIRY="${DEMO_FAST_EXPIRY:-3}"
+
 # ── OUTCOME A: NOBODY APPROVES (EXPIRES) ───────────────────────────────────────
 echo -e "\n${BLUE}────────────────────────────────────────────────────────────────────${NC}"
 echo -e "${BLUE}Outcome (a): Nobody Approves & Request Expires Without Quorum${NC}"
@@ -60,6 +62,7 @@ echo -e "\n${YELLOW}Step 2a: Agent coerced by prompt injection invokes request_s
 if [ "$IS_LIVE" -eq 1 ]; then
   CREATE_A=$(curl -s -X POST "${GATEWAY_URL}/actions" \
     -H "Content-Type: application/json" \
+    -H "X-Demo-Fast-Expiry: ${DEMO_FAST_EXPIRY}" \
     -d "{
       \"tool\": \"request_send_external\",
       \"parameters\": {
@@ -85,7 +88,7 @@ if [ "$IS_LIVE" -eq 1 ]; then
   echo "Target Destination: ${TARGET_DEST}"
   echo "Status: ${STATUS_A} (0/2 approvals)"
   echo "Risk Flags Triggered: ${RISK_A}"
-  echo "TTL Expiration: ${EXPIRES_AT_A}"
+  echo "TTL Expiration: ${EXPIRES_AT_A} (Fast demo TTL: ${DEMO_FAST_EXPIRY}s)"
 else
   ACTION_A_ID="01HV8G7N9B3W00000000000003"
   echo -e "${YELLOW}[MOCK MODE] Action Request A Created: ${ACTION_A_ID}${NC}"
@@ -96,7 +99,15 @@ fi
 
 echo -e "\n${YELLOW}Step 3a: Guardians inspect risk signals on dashboard; NOBODY approves${NC}"
 echo "Guardians identify untrusted endpoint from malicious issue and withhold approval."
-echo "Request remains at 0/2 approvals until TTL expires."
+echo "Fast demo expiry: Waiting ${DEMO_FAST_EXPIRY}s for TTL expiration..."
+sleep "$((DEMO_FAST_EXPIRY + 1))"
+if [ "$IS_LIVE" -eq 1 ]; then
+  EXPIRED_CHECK=$(curl -s "${GATEWAY_URL}/actions/${ACTION_A_ID}")
+  EXPIRED_STATUS=$(echo "$EXPIRED_CHECK" | grep -o '"status":"[^"]*' | cut -d'"' -f4)
+  echo "Action Request A status after TTL: ${EXPIRED_STATUS}"
+else
+  echo -e "${YELLOW}[MOCK MODE] Request status transitioned to: 'expired' (TTL elapsed without quorum).${NC}"
+fi
 
 echo -e "\n${YELLOW}Step 4a: Verify fake-external received NO payloads (Outcome a)${NC}"
 if [ "$IS_LIVE" -eq 1 ]; then
@@ -144,12 +155,17 @@ else
   echo -e "${YELLOW}[MOCK MODE] Action Request B Created: ${ACTION_B_ID}${NC}"
 fi
 
-echo -e "\n${YELLOW}Step 3b: Guardian Alice reviews risk flags in UI and actively REJECTS${NC}"
+echo -e "\n${YELLOW}Step 3b: Guardian Alice logs in, reviews risk flags, and actively REJECTS${NC}"
 if [ "$IS_LIVE" -eq 1 ]; then
+  ALICE_TOKEN=$(curl -s -X POST "${GATEWAY_URL}/auth/dev-token" \
+    -H "Content-Type: application/json" \
+    -d '{"userId": "guardian-alice", "role": "guardian"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+  echo "Obtained Dev Token for Guardian Alice (DEV TOKENS ACTIVE: not Tide identity)"
+
   REJECT_RES=$(curl -s -X POST "${GATEWAY_URL}/actions/${ACTION_B_ID}/reject" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${ALICE_TOKEN}" \
     -d '{
-      "guardianId": "guardian-alice",
       "reason": "Prompt injection detected: unauthorized destination http://localhost:4002/receive"
     }')
   STATUS_B=$(echo "$REJECT_RES" | grep -o '"status":"[^"]*' | cut -d'"' -f4)

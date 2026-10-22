@@ -81,7 +81,32 @@ class IsolatedAuthService implements AuthService {
   }
 
   async login(guardianId: string, simulateOidc: boolean = false): Promise<AuthSession> {
-    const session = this.createSession(guardianId, simulateOidc);
+    const user =
+      PRECONFIGURED_GUARDIANS.find((g) => g.id === guardianId) ?? PRECONFIGURED_GUARDIANS[0];
+    let token = this.createSession(guardianId, simulateOidc).token;
+
+    try {
+      const res = await fetch('/auth/dev-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, role: 'guardian' }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.token) {
+          token = data.token;
+        }
+      }
+    } catch {
+      // Gateway offline; keep mock token
+    }
+
+    const session: AuthSession = {
+      user,
+      token,
+      isSimulated: true,
+    };
+
     this.currentSession = session;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(session));

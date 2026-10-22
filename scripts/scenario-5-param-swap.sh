@@ -67,12 +67,17 @@ else
   echo -e "${YELLOW}[MOCK MODE] Canonical Parameters Hash: ${REAL_HASH}${NC}"
 fi
 
-echo -e "\n${YELLOW}Step 2: Guardian 1 approves legitimate parameters${NC}"
+echo -e "\n${YELLOW}Step 2: Guardian 1 (Alice) logs in and approves legitimate parameters${NC}"
 if [ "$IS_LIVE" -eq 1 ]; then
+  ALICE_TOKEN=$(curl -s -X POST "${GATEWAY_URL}/auth/dev-token" \
+    -H "Content-Type: application/json" \
+    -d '{"userId": "guardian-alice", "role": "guardian"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+  echo "Obtained Dev Token for Guardian Alice (DEV TOKENS ACTIVE: not Tide identity)"
+
   curl -s -X POST "${GATEWAY_URL}/actions/${ACTION_ID}/approve" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${ALICE_TOKEN}" \
     -d "{
-      \"guardianId\": \"guardian-alice\",
       \"parametersHash\": \"${REAL_HASH}\"
     }" > /dev/null
   echo "Guardian 1 approval recorded with canonical hash."
@@ -84,10 +89,15 @@ echo -e "\n${YELLOW}Step 3: Attacker attempts to forge approval with altered par
 FORGED_HASH="sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 if [ "$IS_LIVE" -eq 1 ]; then
+  BOB_TOKEN=$(curl -s -X POST "${GATEWAY_URL}/auth/dev-token" \
+    -H "Content-Type: application/json" \
+    -d '{"userId": "guardian-bob", "role": "guardian"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+  echo "Obtained Dev Token for Guardian Bob (DEV TOKENS ACTIVE: not Tide identity)"
+
   FORGE_RES=$(curl -s -X POST "${GATEWAY_URL}/actions/${ACTION_ID}/approve" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${BOB_TOKEN}" \
     -d "{
-      \"guardianId\": \"guardian-bob\",
       \"parametersHash\": \"${FORGED_HASH}\"
     }" || true)
   echo "Gateway response on tampered hash: ${FORGE_RES}"

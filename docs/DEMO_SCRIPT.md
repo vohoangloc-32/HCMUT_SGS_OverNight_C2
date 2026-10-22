@@ -41,7 +41,11 @@
 | *(Note: UI login uses simulated profiles labeled `MOCK LOGIN` because live TideCloak container is not running on this host).* | **Secret Isolation & Handles**: Raw secrets never touch the agent; the gateway returns opaque ephemeral handles (`sec-handle-*`). | **Guardian UI Session**: Simulated session with prominent `MOCK LOGIN` badge. |
 | | **AES-256-GCM Secret Store**: Secret table holds authenticated ciphertext only; key is in process memory/env. *(NOT Tide tag encryption).* | |
 
-> [!NOTE]
+> [!IMPORTANT]
+> **Tide's Role in this Demonstration**:
+> Tide's role is **implemented in code and unit tests, NOT demonstrated live in this demo**.
+> When running locally without a live TideCloak container, the gateway operates in DEV token mode (signed via `DEV_TOKEN_SECRET`, logging startup warning `⚠️ DEV TOKENS ACTIVE: not Tide identity`). Dev tokens are strictly for local development and scenario testing and are **never presented as Tide identity**.
+>
 > **Why Agents Do Not Hold Tide Identities**:
 > Autonomous agents cannot hold Tide identities or sign Tide transactions directly because Tide authentication and cryptographic signing require a human-owned browser session (Web Enclave per GAP-064/GAP-063). Therefore, agents propose actions via MCP tools, and human guardians authenticate and approve in the browser.
 

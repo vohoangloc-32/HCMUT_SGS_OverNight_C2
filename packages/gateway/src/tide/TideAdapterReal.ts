@@ -1,4 +1,4 @@
-import { createLocalJWKSet, jwtVerify } from 'jose';
+import { createLocalJWKSet, jwtVerify, SignJWT } from 'jose';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
 import { readFileSync, existsSync } from 'fs';
 import type { TideAdapter, TideJwtPayload } from './TideAdapter.js';
@@ -11,32 +11,66 @@ export interface TideCloakAdapterConfig {
   jwk?: { keys: Record<string, unknown>[] };
 }
 
+export async function createDevToken(
+  userId: string,
+  role: string = 'guardian',
+  secretKeyString: string
+): Promise<string> {
+  const secretKey = new TextEncoder().encode(secretKeyString);
+  return new SignJWT({
+    sub: userId,
+    email: `${userId}@dev.local`,
+    realm_access: { roles: [role] },
+    azp: 'gateway-client',
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setIssuer('key-holder-dev-gateway')
+    .setExpirationTime('1h')
+    .sign(secretKey);
+}
+
 export class TideAdapterReal implements TideAdapter {
   private config: TideCloakAdapterConfig | null = null;
   private jwks: ReturnType<typeof createLocalJWKSet> | null = null;
   private encryptionKey: Buffer;
   private guardianRole: string;
+  private devTokenSecret: string | null = null;
 
   constructor(options?: {
     config?: TideCloakAdapterConfig;
     adapterPath?: string;
     encryptionKey?: string;
     guardianRole?: string;
+    devTokenSecret?: string;
   }) {
     this.guardianRole = options?.guardianRole ?? process.env.GUARDIAN_ROLE ?? 'guardian';
 
-    // Derive 32-byte key for AES-256-GCM secret encryption
-    const secretSeed =
-      options?.encryptionKey ??
-      process.env.ENCRYPTION_KEY ??
-      process.env.TIDECLOAK_CLIENT_SECRET ??
-      'key-holder-gateway-dev-secret-key-32b';
+    // Derive 32-byte key for AES-256-GCM secret encryption (no fallback seed allowed).
+    const secretSeed = options?.encryptionKey ?? process.env.ENCRYPTION_KEY;
+    if (!secretSeed) {
+      throw new Error(
+        'FATAL: ENCRYPTION_KEY environment variable is required for secret storage. Refusing to start without it.'
+      );
+    }
     this.encryptionKey = createHash('sha256').update(secretSeed).digest();
 
     if (options?.config) {
       this.loadConfig(options.config);
     } else {
       this.initFromEnv(options?.adapterPath);
+    }
+
+    this.devTokenSecret = options?.devTokenSecret ?? process.env.DEV_TOKEN_SECRET ?? null;
+
+    if (!this.jwks && !this.devTokenSecret) {
+      throw new Error(
+        'FATAL: DEV_TOKEN_SECRET environment variable is required when TideCloak is not configured.'
+      );
+    }
+
+    if (!this.jwks && this.devTokenSecret) {
+      console.warn('⚠️  DEV TOKENS ACTIVE: not Tide identity');
     }
   }
 
@@ -88,75 +122,76 @@ export class TideAdapterReal implements TideAdapter {
     if (!token) throw new Error('Missing authentication token');
 
     const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
+    if (!cleanToken) throw new Error('Missing authentication token');
 
-    // Development / test bypass: allow mock tokens when real JWKS is not configured
-    if (
-      cleanToken.startsWith('mock:') ||
-      cleanToken.startsWith('mock-token-') ||
-      cleanToken.startsWith('fake-tidecloak-jwt.') ||
-      cleanToken.startsWith('mock')
-    ) {
-      let userId = 'guardian-user';
-      let role = this.guardianRole;
+    // 1. Live TideCloak JWKS mode
+    if (this.jwks && this.config) {
+      const issuer = `${this.config['auth-server-url'].replace(/\/+$/, '')}/realms/${this.config.realm}`;
+      const { payload } = await jwtVerify(cleanToken, this.jwks, {
+        issuer,
+      });
 
-      if (cleanToken.startsWith('mock:')) {
-        const parts = cleanToken.split(':');
-        userId = parts[1] || 'guardian-user';
-        role = parts[2] || this.guardianRole;
-      } else if (cleanToken.startsWith('mock-token-')) {
-        userId = cleanToken.replace('mock-token-', '') || 'guardian-user';
-      } else if (cleanToken.startsWith('fake-tidecloak-jwt.')) {
-        try {
-          const payloadPart = cleanToken.split('.')[1];
-          const decoded = JSON.parse(Buffer.from(payloadPart, 'base64').toString('utf-8'));
-          userId = decoded.sub || 'guardian-user';
-          role = decoded.role || this.guardianRole;
-        } catch {
-          userId = 'guardian-user';
-        }
-      } else if (cleanToken.startsWith('mock')) {
-        userId = cleanToken.replace(/^mock[-_:]*/, '') || 'guardian-user';
+      if (this.config.resource && payload.azp && payload.azp !== this.config.resource) {
+        throw new Error(`Token azp mismatch: expected ${this.config.resource}, got ${payload.azp}`);
       }
 
       return {
-        sub: userId,
-        email: `${userId}@tidecloak.local`,
-        realm_access: { roles: [role, '_tide_enabled'] },
-        resource_access: {
-          [this.config?.resource ?? 'gateway-client']: { roles: [role] },
-        },
-        azp: this.config?.resource ?? 'gateway-client',
-        exp: Math.floor(Date.now() / 1000) + 3600,
-        iat: Math.floor(Date.now() / 1000),
+        sub: (payload.sub as string) ?? 'unknown',
+        email: (payload.email as string) ?? undefined,
+        realm_access: payload.realm_access as { roles: string[] } | undefined,
+        resource_access: payload.resource_access as Record<string, { roles: string[] }> | undefined,
+        azp: (payload.azp as string) ?? undefined,
+        exp: (payload.exp as number) ?? 0,
+        iat: (payload.iat as number) ?? 0,
       };
     }
 
-    if (!this.jwks || !this.config) {
-      // If live TideCloak JWKS is not yet loaded, simulate decoding or reject
-      throw new Error(
-        'TideCloak JWKS adapter configuration not loaded. Provide TIDECLOAK_ADAPTER_FILE.'
-      );
+    // 2. DEV token mode: support mock tokens or verify cryptographically signed token with DEV_TOKEN_SECRET
+    if (this.devTokenSecret) {
+      if (cleanToken.startsWith('mock-token-')) {
+        const guardianId = cleanToken.replace(/^mock-token-/, '');
+        return {
+          sub: guardianId,
+          email: `${guardianId}@dev.local`,
+          realm_access: { roles: [this.guardianRole] },
+          azp: 'gateway-client',
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          iat: Math.floor(Date.now() / 1000),
+        };
+      }
+      if (cleanToken.startsWith('mock:')) {
+        const parts = cleanToken.split(':');
+        const userId = parts[1] ?? 'mock-user';
+        const role = parts[2] ?? this.guardianRole;
+        return {
+          sub: userId,
+          email: `${userId}@dev.local`,
+          realm_access: { roles: [role] },
+          azp: 'gateway-client',
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          iat: Math.floor(Date.now() / 1000),
+        };
+      }
+
+      const secretBytes = new TextEncoder().encode(this.devTokenSecret);
+      const { payload } = await jwtVerify(cleanToken, secretBytes, {
+        issuer: 'key-holder-dev-gateway',
+      });
+
+      return {
+        sub: (payload.sub as string) ?? 'unknown',
+        email: (payload.email as string) ?? undefined,
+        realm_access: payload.realm_access as { roles: string[] } | undefined,
+        resource_access: payload.resource_access as Record<string, { roles: string[] }> | undefined,
+        azp: (payload.azp as string) ?? undefined,
+        exp: (payload.exp as number) ?? 0,
+        iat: (payload.iat as number) ?? 0,
+      };
     }
 
-    const issuer = `${this.config['auth-server-url'].replace(/\/+$/, '')}/realms/${this.config.realm}`;
-
-    const { payload } = await jwtVerify(cleanToken, this.jwks, {
-      issuer,
-    });
-
-    if (this.config.resource && payload.azp && payload.azp !== this.config.resource) {
-      throw new Error(`Token azp mismatch: expected ${this.config.resource}, got ${payload.azp}`);
-    }
-
-    return {
-      sub: payload.sub ?? 'unknown',
-      email: (payload.email as string) ?? undefined,
-      realm_access: payload.realm_access as { roles: string[] } | undefined,
-      resource_access: payload.resource_access as Record<string, { roles: string[] }> | undefined,
-      azp: (payload.azp as string) ?? undefined,
-      exp: (payload.exp as number) ?? 0,
-      iat: (payload.iat as number) ?? 0,
-    };
+    throw new Error(
+      'TideCloak JWKS adapter configuration not loaded and DEV_TOKEN_SECRET not configured.'
+    );
   }
 
   isGuardian(payload: TideJwtPayload): boolean {
@@ -212,13 +247,21 @@ export class TideAdapterReal implements TideAdapter {
     return decrypted.toString('utf-8');
   }
 
-  async healthCheck(): Promise<{ ok: boolean; detail: string }> {
-    if (!this.config) {
-      return { ok: false, detail: 'TideCloak adapter not configured' };
+  async healthCheck(): Promise<{ ok: boolean; detail: string; mode: string }> {
+    if (this.config && this.jwks) {
+      return {
+        ok: true,
+        mode: 'tidecloak',
+        detail: `Configured for realm "${this.config.realm}" at ${this.config['auth-server-url']}`,
+      };
     }
-    return {
-      ok: true,
-      detail: `Configured for realm "${this.config.realm}" at ${this.config['auth-server-url']}`,
-    };
+    if (this.devTokenSecret) {
+      return {
+        ok: true,
+        mode: 'dev-tokens',
+        detail: 'DEV TOKENS ACTIVE: not Tide identity (HMAC-SHA256 tokens via DEV_TOKEN_SECRET)',
+      };
+    }
+    return { ok: false, mode: 'unconfigured', detail: 'TideCloak adapter not configured' };
   }
 }

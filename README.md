@@ -113,8 +113,11 @@ This table provides the exact split between genuine Tide capabilities, gateway-e
 | **External Exfiltration Target** | Mock Environment | **Mocked** | Stand-in HTTP sink (`mock-env/fake-external` on port 4002) verifying 0 bytes leaked. |
 | **Secrets Fixture** | Mock Environment | **Mocked** | Labeled placeholder secrets (`mock-env/fixtures/fake-secrets.txt`) strictly carrying the `FAKE` marker. |
 
-> [!NOTE]
-> **No Ambiguous Claims**:
+> [!IMPORTANT]
+> **Tide's Role in this Demonstration**:
+> Tide's role is **implemented in code and unit tests, NOT demonstrated live in this demo**.
+> When running locally without a live TideCloak container, the gateway operates in DEV token mode (signed via `DEV_TOKEN_SECRET`, logging the startup warning `⚠️ DEV TOKENS ACTIVE: not Tide identity`). Dev tokens are strictly for local development and scenario testing and are **never presented as Tide identity**.
+>
 > - We do **not** claim "Tide enforces quorum" — the gateway quorum engine tallies approvals backed by Tide guardian identities.
 > - We do **not** claim "Tide encrypts our secrets" — headless server secret storage uses AES-256-GCM authenticated encryption because Tide tag encryption requires client browser Web Enclave sessions.
 

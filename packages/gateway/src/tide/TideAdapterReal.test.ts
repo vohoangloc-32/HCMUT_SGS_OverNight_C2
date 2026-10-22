@@ -1,8 +1,10 @@
-import { TideAdapterReal } from './TideAdapterReal.js';
+import { TideAdapterReal, createDevToken } from './TideAdapterReal.js';
 
 describe('TideAdapterReal', () => {
+  const devTokenSecret = 'test-dev-token-secret-12345';
   const adapter = new TideAdapterReal({
     encryptionKey: 'test-secret-key-for-testing-12345',
+    devTokenSecret,
   });
 
   describe('Secret encryption / decryption (AES-256-GCM)', () => {
@@ -40,35 +42,51 @@ describe('TideAdapterReal', () => {
   });
 
   describe('JWT Verification & Guardian Role', () => {
-    test('handles mock dev tokens with guardian role', async () => {
-      const payload = await adapter.verifyJwt('Bearer mock:alice:guardian');
+    test('verifies valid dev token with guardian role', async () => {
+      const token = await createDevToken('alice', 'guardian', devTokenSecret);
+      const payload = await adapter.verifyJwt(`Bearer ${token}`);
       expect(payload.sub).toBe('alice');
       expect(adapter.isGuardian(payload)).toBe(true);
     });
 
     test('identifies non-guardian roles', async () => {
-      const payload = await adapter.verifyJwt('Bearer mock:charlie:viewer');
+      const token = await createDevToken('charlie', 'viewer', devTokenSecret);
+      const payload = await adapter.verifyJwt(`Bearer ${token}`);
       expect(payload.sub).toBe('charlie');
       expect(adapter.isGuardian(payload)).toBe(false);
     });
 
-    test('handles UI mock-token- format', async () => {
-      const payload = await adapter.verifyJwt('Bearer mock-token-guardian-carol');
-      expect(payload.sub).toBe('guardian-carol');
-      expect(adapter.isGuardian(payload)).toBe(true);
-    });
-
-    test('handles UI simulated JWT format', async () => {
-      const b64 = Buffer.from(
-        JSON.stringify({ sub: 'guardian-bob', role: 'guardian' })
-      ).toString('base64');
-      const payload = await adapter.verifyJwt(`Bearer fake-tidecloak-jwt.${b64}.fake-sig`);
-      expect(payload.sub).toBe('guardian-bob');
-      expect(adapter.isGuardian(payload)).toBe(true);
+    test('rejects forged token / wrong signature', async () => {
+      const forgedToken = await createDevToken('alice', 'guardian', 'forged-attacker-key');
+      await expect(adapter.verifyJwt(`Bearer ${forgedToken}`)).rejects.toThrow();
     });
 
     test('rejects empty or missing token', async () => {
       await expect(adapter.verifyJwt('')).rejects.toThrow('Missing authentication token');
+    });
+
+    test('constructor fails if ENCRYPTION_KEY is missing', () => {
+      const oldKey = process.env.ENCRYPTION_KEY;
+      delete process.env.ENCRYPTION_KEY;
+      try {
+        expect(() => new TideAdapterReal({ devTokenSecret: 'secret' })).toThrow(
+          /ENCRYPTION_KEY environment variable is required/
+        );
+      } finally {
+        if (oldKey) process.env.ENCRYPTION_KEY = oldKey;
+      }
+    });
+
+    test('constructor fails if DEV_TOKEN_SECRET is missing and no TideCloak config', () => {
+      const oldSecret = process.env.DEV_TOKEN_SECRET;
+      delete process.env.DEV_TOKEN_SECRET;
+      try {
+        expect(
+          () => new TideAdapterReal({ encryptionKey: 'some-key' })
+        ).toThrow(/DEV_TOKEN_SECRET environment variable is required/);
+      } finally {
+        if (oldSecret) process.env.DEV_TOKEN_SECRET = oldSecret;
+      }
     });
   });
 });

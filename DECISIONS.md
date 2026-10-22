@@ -95,6 +95,12 @@
 - **Impact**: Enables smooth multi-guardian demo interactions (switching between Alice, Bob, Carol) without hard runtime Docker dependencies.
 - **Owner**: P2
 
+### [FAKED / LABELED] F-04 — Gateway DEV Token Mode
+- **Evidence**: Without a live TideCloak container, the gateway issues and verifies cryptographically signed HMAC-SHA256 tokens using `DEV_TOKEN_SECRET`.
+- **Decision**: Clearly labeled with startup warning `⚠️ DEV TOKENS ACTIVE: not Tide identity`. Verified in `TideAdapterReal.verifyJwt`. Prohibits unauthenticated calls or arbitrary body `guardianId` spoofing.
+- **Impact**: Demonstrates full cryptographic bearer token verification, role enforcement, and replay prevention in tests and scripts while explicitly acknowledging Tide's role is implemented in code and unit tests, NOT demonstrated live in this demo.
+- **Owner**: P1 / P2
+
 ---
 
 ## Open Questions Status

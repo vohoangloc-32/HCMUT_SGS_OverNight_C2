@@ -4,6 +4,7 @@ import type { QuorumEngine } from '../quorum/QuorumEngine.js';
 import type { TideAdapter } from '../tide/TideAdapter.js';
 import { ulid } from 'ulid';
 import { canonicalParamsHash } from '../crypto/canonicalParamsHash.js';
+import { codeChangeParamsHash } from '../executor/codeChangeExecutor.js';
 import {
   CreateActionRequestBodySchema,
   ListActionsQuerySchema,
@@ -40,9 +41,20 @@ export async function actionsRoutes(app: FastifyInstance, opts: RoutesOptions) {
     const body = parseResult.data;
 
     const id = ulid();
-    const parametersHash = canonicalParamsHash(body.parameters as Record<string, unknown>);
+    const parametersHash =
+      body.tool === 'request_code_change'
+        ? codeChangeParamsHash(
+            String((body.parameters as Record<string, unknown>).patch ?? ''),
+            String((body.parameters as Record<string, unknown>).baseSha ?? '')
+          )
+        : canonicalParamsHash(body.parameters as Record<string, unknown>);
     const now = new Date();
-    const ttlSeconds = parseInt(process.env.ACTION_TTL_SECONDS ?? '3600', 10);
+    const fastExpiryHeader = request.headers['x-demo-fast-expiry'] as string | undefined;
+    const ttlSeconds = fastExpiryHeader
+      ? parseInt(fastExpiryHeader, 10)
+      : process.env.DEMO_FAST_EXPIRY
+        ? parseInt(process.env.DEMO_FAST_EXPIRY, 10)
+        : parseInt(process.env.ACTION_TTL_SECONDS ?? '3600', 10);
     const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
 
     // Deterministic risk signals
@@ -125,7 +137,19 @@ export async function actionsRoutes(app: FastifyInstance, opts: RoutesOptions) {
         ).c
       : (db.prepare('SELECT COUNT(*) as c FROM action_requests').get() as { c: number }).c;
 
-    return reply.send({ items: rows.map(deserialize), total, limit, offset });
+    const items = rows.map(deserialize).map((action) => {
+      if (action.status === 'pending' && new Date(action.expiresAt) < new Date()) {
+        action.status = 'expired';
+        db.prepare("UPDATE action_requests SET status = 'expired' WHERE id = ?").run(action.id);
+        appendAudit(db, action.id, 'expired', 'system', {
+          at: new Date().toISOString(),
+          reason: 'TTL elapsed without quorum',
+        });
+      }
+      return action;
+    });
+
+    return reply.send({ items, total, limit, offset });
   });
 
   /** GET /actions/:id — single request */
@@ -136,7 +160,16 @@ export async function actionsRoutes(app: FastifyInstance, opts: RoutesOptions) {
       return reply
         .status(404)
         .send({ error: { code: 'NOT_FOUND', message: 'Action request not found' } });
-    return reply.send(deserialize(row as Record<string, unknown>));
+    const action = deserialize(row as Record<string, unknown>);
+    if (action.status === 'pending' && new Date(action.expiresAt) < new Date()) {
+      action.status = 'expired';
+      db.prepare("UPDATE action_requests SET status = 'expired' WHERE id = ?").run(id);
+      appendAudit(db, id, 'expired', 'system', {
+        at: new Date().toISOString(),
+        reason: 'TTL elapsed without quorum',
+      });
+    }
+    return reply.send(action);
   });
 }
 
@@ -193,8 +226,46 @@ function computeRiskSignals(body: { tool: string; parameters: unknown }): RiskSi
     }
   }
 
+  if (body.tool === 'request_code_change') {
+    const patch = String(params.patch ?? '');
+    const filesTouched = Array.isArray(params.filesTouched)
+      ? (params.filesTouched as string[])
+      : [];
+    // Inline risk signal detection for code changes
+    const urlPattern = /https?:\/\/[^\s'"]+/gi;
+    const fetchPattern = /\+.*\b(fetch|axios|http\.request|https\.request|XMLHttpRequest|\.get\(|\.post\()\b/i;
+    if (urlPattern.test(patch) || fetchPattern.test(patch)) {
+      signals.push('new-network-call');
+    }
+    const envPattern = /\+.*\b(process\.env|dotenv|\.env|secrets?\.json|credentials)/i;
+    if (envPattern.test(patch)) {
+      signals.push('env-access');
+    }
+    const depPattern = /\+.*"(dependencies|devDependencies|peerDependencies)"/i;
+    if (depPattern.test(patch)) {
+      signals.push('new-dependency');
+    }
+    const ciFiles = filesTouched.filter((f: string) =>
+      /\.(yml|yaml)$/i.test(f) || /Dockerfile/i.test(f) || /\.github\//i.test(f) || /Makefile$/i.test(f)
+    );
+    if (ciFiles.length > 0) {
+      signals.push('ci-config-change');
+    }
+    const addedLines = (patch.match(/^\+[^+]/gm) || []).length;
+    if (addedLines > 500) {
+      signals.push('large-diff');
+    }
+    const PROTECTED_PATTERNS = [/^\.git\//, /^\.git$/, /\.env$/, /gateway/i, /mcp-server/i];
+    const protectedTouched = filesTouched.filter((f: string) =>
+      PROTECTED_PATTERNS.some((p) => p.test(f))
+    );
+    if (protectedTouched.length > 0) {
+      signals.push('protected-path');
+    }
+  }
+
   void RISK_SIGNALS;
-  return Array.from(new Set(signals));
+  return Array.from(new Set(signals)) as RiskSignal[];
 }
 
 export function seedDefaultActions(db: Db) {

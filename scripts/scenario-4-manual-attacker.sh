@@ -70,12 +70,37 @@ else
   echo -e "${YELLOW}[MOCK MODE] Target Secret: PROD_DB_MIGRATION_TOKEN${NC}"
 fi
 
-echo -e "\n${YELLOW}Step 2: Proposer attempts self-approval (must be denied)${NC}"
+echo -e "\n${YELLOW}Step 2a: Attacker attempts to forge approval without a verified token (must return 401)${NC}"
 if [ "$IS_LIVE" -eq 1 ]; then
-  SELF_RES=$(curl -s -X POST "${GATEWAY_URL}/actions/${ACTION_ID}/approve" \
+  FORGE_NO_TOKEN_RES=$(curl -s -X POST "${GATEWAY_URL}/actions/${ACTION_ID}/approve" \
     -H "Content-Type: application/json" \
     -d "{
-      \"guardianId\": \"compromised-alice\",
+      \"guardianId\": \"guardian-bob\",
+      \"parametersHash\": \"${PARAMS_HASH}\"
+    }" || true)
+  echo "Forged approval without token response: ${FORGE_NO_TOKEN_RES}"
+  if echo "$FORGE_NO_TOKEN_RES" | grep -q "UNAUTHORIZED"; then
+    echo -e "${GREEN}✔ Gateway correctly rejected unauthenticated forged request with HTTP 401 UNAUTHORIZED.${NC}"
+  else
+    echo -e "${RED}Error: Expected UNAUTHORIZED error code${NC}" >&2
+    exit 1
+  fi
+else
+  echo -e "${YELLOW}[MOCK MODE] Request rejected: HTTP 401 Unauthorized (Missing Bearer Token).${NC}"
+  echo -e "${GREEN}✔ Gateway correctly rejected unauthenticated forged request with HTTP 401 UNAUTHORIZED.${NC}"
+fi
+
+echo -e "\n${YELLOW}Step 2b: Proposer logs in and attempts self-approval (must be denied with 409 SELF_APPROVAL)${NC}"
+if [ "$IS_LIVE" -eq 1 ]; then
+  ALICE_TOKEN=$(curl -s -X POST "${GATEWAY_URL}/auth/dev-token" \
+    -H "Content-Type: application/json" \
+    -d '{"userId": "compromised-alice", "role": "guardian"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+  echo "Obtained Dev Token for compromised-alice (DEV TOKENS ACTIVE: not Tide identity)"
+
+  SELF_RES=$(curl -s -X POST "${GATEWAY_URL}/actions/${ACTION_ID}/approve" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${ALICE_TOKEN}" \
+    -d "{
       \"parametersHash\": \"${PARAMS_HASH}\"
     }" || true)
   echo "Self-approval response: ${SELF_RES}"
@@ -91,12 +116,17 @@ else
   echo -e "${GREEN}✔ Gateway correctly rejected self-approval with error code SELF_APPROVAL (Four-Eyes Principle enforced).${NC}"
 fi
 
-echo -e "\n${YELLOW}Step 3: A single rogue guardian (Bob) approves (1/2 approvals)${NC}"
+echo -e "\n${YELLOW}Step 3: A single rogue guardian (Bob) approves (1/2 approvals, quorum NOT reached)${NC}"
 if [ "$IS_LIVE" -eq 1 ]; then
+  BOB_TOKEN=$(curl -s -X POST "${GATEWAY_URL}/auth/dev-token" \
+    -H "Content-Type: application/json" \
+    -d '{"userId": "guardian-bob", "role": "guardian"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+  echo "Obtained Dev Token for Guardian Bob (DEV TOKENS ACTIVE: not Tide identity)"
+
   APPROVE_RES=$(curl -s -X POST "${GATEWAY_URL}/actions/${ACTION_ID}/approve" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${BOB_TOKEN}" \
     -d "{
-      \"guardianId\": \"guardian-bob\",
       \"parametersHash\": \"${PARAMS_HASH}\"
     }")
   STATUS=$(echo "$APPROVE_RES" | grep -o '"status":"[^"]*' | cut -d'"' -f4)

@@ -268,7 +268,34 @@ Liveness and readiness probe.
 
 **Response** `200 OK`
 ```json
-{ "status": "ok", "version": "0.1.0", "db": "ok", "tide": "unconfigured" }
+{ "status": "ok", "version": "0.1.0", "db": "ok", "tide": "ok" }
+```
+
+---
+
+### POST /auth/dev-token
+
+Issues cryptographically signed HMAC-SHA256 tokens using `DEV_TOKEN_SECRET` when running locally without a live TideCloak container.
+Clearly labeled: `DEV TOKENS ACTIVE: not Tide identity`. Never presented as Tide identity.
+
+**Request**
+```json
+{
+  "userId": "guardian-alice",
+  "role": "guardian"
+}
+```
+
+**Response** `200 OK`
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "tokenType": "Bearer",
+  "expiresIn": 3600,
+  "userId": "guardian-alice",
+  "role": "guardian",
+  "warning": "DEV TOKENS ACTIVE: not Tide identity"
+}
 ```
 
 ---

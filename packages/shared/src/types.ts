@@ -12,11 +12,12 @@ export const TOOL_NAMES = [
   'request_deploy',
   'request_use_secret',
   'request_send_external',
+  'request_code_change',
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
 
-export const STATUSES = ['pending', 'approved', 'rejected', 'executed', 'expired'] as const;
+export const STATUSES = ['pending', 'approved', 'rejected', 'executed', 'expired', 'failed'] as const;
 
 export type Status = (typeof STATUSES)[number];
 
@@ -29,6 +30,12 @@ export const RISK_SIGNALS = [
   'unknown-destination',
   'sensitive-tag',
   'unusual-volume',
+  'new-network-call',
+  'env-access',
+  'new-dependency',
+  'ci-config-change',
+  'large-diff',
+  'protected-path',
 ] as const;
 
 export type RiskSignal = (typeof RISK_SIGNALS)[number];
@@ -49,6 +56,9 @@ export const ERROR_CODES = {
   QUORUM_NOT_MET: 'QUORUM_NOT_MET',
   EXPIRED: 'EXPIRED',
   HASH_MISMATCH: 'HASH_MISMATCH',
+  BASE_CHANGED: 'BASE_CHANGED',
+  PROTECTED_PATH: 'PROTECTED_PATH',
+  TESTS_FAILED: 'TESTS_FAILED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -130,6 +140,14 @@ export interface SendExternalParameters {
   payload_ref: string;
 }
 
+export interface CodeChangeParameters {
+  title: string;
+  description: string;
+  patch: string;
+  baseSha: string;
+  filesTouched: string[];
+}
+
 // ── API request/response shapes ───────────────────────────────────────────────
 
 export interface CreateActionRequestBody {
@@ -158,6 +176,13 @@ export interface ApproveRequestResponse {
   approvals: Approval[];
   executed: boolean;
   executionResult?: { ok: boolean; detail: string };
+}
+
+export interface PatchResponse {
+  id: string;
+  patch: string;
+  baseSha: string;
+  filesTouched: string[];
 }
 
 export interface ListActionsResponse {
