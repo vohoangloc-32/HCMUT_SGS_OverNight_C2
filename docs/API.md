@@ -78,13 +78,13 @@
 ### ToolName (enum)
 
 ```typescript
-"request_deploy" | "request_use_secret" | "request_send_external"
+"request_deploy" | "request_use_secret" | "request_send_external" | "request_code_change"
 ```
 
 ### Status (enum)
 
 ```typescript
-"pending" | "approved" | "rejected" | "executed" | "expired"
+"pending" | "approved" | "rejected" | "executed" | "expired" | "failed"
 ```
 
 ### Tool Parameters
@@ -102,6 +102,17 @@
 #### `request_send_external`
 ```json
 { "destination": "string (URL)", "payload_ref": "string (reference to payload, not the payload itself)" }
+```
+
+#### `request_code_change`
+```json
+{
+  "title": "string (max 200 chars)",
+  "description": "string (max 2000 chars)",
+  "patch": "string (unified git diff format)",
+  "baseSha": "string (7-40 hex commit hash)",
+  "filesTouched": ["string (file paths)"]
+}
 ```
 
 ### Error Response
@@ -129,6 +140,9 @@
 | `QUORUM_NOT_MET` | 409 | Execution triggered before quorum reached |
 | `EXPIRED` | 410 | Action request has expired |
 | `HASH_MISMATCH` | 422 | Parameters changed after approval was recorded |
+| `BASE_CHANGED` | 409 | Protected repo HEAD no longer matches patch baseSha |
+| `PROTECTED_PATH` | 403 | Patch touches protected paths (.git, gateway configs, etc.) |
+| `TESTS_FAILED` | 422 | Patch tests failed; patch not merged into main |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
 
 ---
@@ -186,6 +200,43 @@ List action requests. Guardians poll this endpoint.
 Get a single action request by ID.
 
 **Response** `200 OK` — full `ActionRequest` object, or `404`.
+
+---
+
+### GET /actions/:id/patch
+
+Get the raw git diff patch and metadata for a code change action request.
+Requires a valid guardian JWT. Only returns data for `request_code_change` actions.
+
+**Headers**: `Authorization: Bearer <guardian_jwt>`
+
+**Response** `200 OK`
+```json
+{
+  "id": "01HV8G7N9B3W00000000000004",
+  "patch": "diff --git a/src/discount.js b/src/discount.js\n...",
+  "baseSha": "c0ffee1",
+  "filesTouched": ["src/discount.js"]
+}
+```
+
+---
+
+### GET /repo/log
+
+Get git log status of the protected repository (commit history, current branch, HEAD).
+
+**Response** `200 OK`
+```json
+{
+  "ok": true,
+  "repoPath": "/path/to/protected/repo",
+  "head": "c0ffee1",
+  "branch": "main",
+  "commits": ["c0ffee1 fix: baseline commit"],
+  "rawLog": "c0ffee1 fix: baseline commit"
+}
+```
 
 ---
 

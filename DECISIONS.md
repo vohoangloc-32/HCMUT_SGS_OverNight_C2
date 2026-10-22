@@ -103,6 +103,34 @@
 
 ---
 
+## Code Change Action (P1 Extension)
+
+### [VERIFIED / REAL] CC-01 — Real Code Change Execution
+- **Evidence**: MCP protocol allows tools to capture working tree diffs; git CLI provides atomic patch verification and temporary branch testing.
+- **Decision**: Added `request_code_change(title, description, workspace_path)` to MCP server. MCP server runs `git diff` against base HEAD (including untracked files via intent-to-add) and posts patch to gateway.
+- **Impact**: The agent NEVER writes directly to the protected repo; the tool only returns an action ID. The Gateway acts as the sole custodian.
+- **Owner**: P1
+
+### [VERIFIED / POC LIMITATION] CC-02 — Protected Repo Isolation
+- **Evidence**: Operating system process permissions. In production, the gateway process and protected repo would reside on a dedicated host or container with distinct OS credentials.
+- **Decision**: Gateway keeps an isolated protected git repository (`mock-env/protected-repo`) pointed to by `PROTECTED_REPO_PATH`.
+- **Limitation (PoC)**: In the local dev/hackathon demo, the agent and gateway share the same OS user. Path-level separation is a demo boundary, not an OS security boundary. Clearly acknowledged in docs.
+- **Owner**: P1
+
+### [VERIFIED / REAL] CC-03 — Test-Gated Merges & Trailer Provenance
+- **Evidence**: Automated validation before merging prevents regression or malicious tampering from reaching production branches.
+- **Decision**: `codeChangeExecutor` validates `git apply --check`, checks out a temp review branch, applies the patch, and executes `npm test`. If tests pass, fast-forwards `main` with `Approved-by:` trailers listing each guardian. If tests fail, cancels merge, rolls back, and marks status as `failed`.
+- **Impact**: Real side effects on the protected repo; deterministic verification.
+- **Owner**: P1
+
+### [VERIFIED / REAL] CC-04 — Deterministic Risk Signals on Diff
+- **Evidence**: Static analysis on diff patches catches high-risk changes before human review.
+- **Decision**: Gateway computes risk signals: `new-network-call` (regex for fetch/axios/http/urls), `env-access` (process.env/secrets), `new-dependency` (package.json changes), `ci-config-change` (.github/workflows, Makefiles), `large-diff` (>500 lines), `protected-path` (.git/, gateway/mcp config files).
+- **Impact**: Guardians immediately see risk flags in dashboard and API before granting approval.
+- **Owner**: P1
+
+---
+
 ## Open Questions Status
 
 - [x] TC-01: Correct TideCloak Docker image name? -> `tideorg/tidecloak-dev:latest`
@@ -111,3 +139,4 @@
 - [x] TC-04: Can the gateway decrypt a TideCloak-encrypted secret server-side? -> Unsupported for headless server; Gateway AES-256-GCM fallback with opaque handles.
 - [x] TC-05: Is the JS SDK sufficient for server-side JWT verification in Node.js? -> Yes, `jose` with local JWKS.
 - [x] TC-06: Exact dev license activation flow? -> `setUpTideRealm` with `x-www-form-urlencoded`.
+- [x] CC-01: How to safely gate AI code modifications? -> Parameter-bound git patches with N-of-M guardian approvals and test-gated execution.

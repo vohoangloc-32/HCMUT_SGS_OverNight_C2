@@ -181,7 +181,7 @@ export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions)
 
     return reply.send({
       id,
-      status: executed ? 'executed' : newStatus,
+      status: executed ? 'executed' : updated.quorumReached ? 'failed' : newStatus,
       approvals: updated.approvals,
       executed,
       executionResult,

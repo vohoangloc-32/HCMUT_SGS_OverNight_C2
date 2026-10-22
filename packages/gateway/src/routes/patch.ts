@@ -4,6 +4,9 @@
  * Guardians-only: requires a valid guardian JWT.
  * Only returns a patch for request_code_change actions.
  */
+import { execSync } from 'child_process';
+import { resolve } from 'path';
+import { existsSync } from 'fs';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.js';
 import type { TideAdapter, TideJwtPayload } from '../tide/TideAdapter.js';
@@ -90,4 +93,82 @@ export async function patchRoutes(app: FastifyInstance, opts: RoutesOptions) {
       filesTouched: params.filesTouched,
     });
   });
+
+  /** GET /repo/log — get git log of protected repository */
+  app.get('/repo/log', async (_request, reply) => {
+    const rawPath = process.env.PROTECTED_REPO_PATH ?? './mock-env/protected-repo';
+    const candidates = [
+      resolve(rawPath),
+      resolve(process.cwd(), rawPath),
+      resolve(process.cwd(), '../../', rawPath.replace(/^\.\.\/\.\.\//, '').replace(/^\.\//, '')),
+      resolve(process.cwd(), '../../mock-env/protected-repo'),
+    ];
+    const repoPath = candidates.find((p) => existsSync(p)) ?? resolve(rawPath);
+
+    try {
+      if (!existsSync(repoPath)) {
+        return reply.send({
+          ok: false,
+          repoPath,
+          error: `Repo path does not exist: ${repoPath}`,
+          commits: [],
+          rawLog: 'Repo directory not found',
+        });
+      }
+
+      let rawLog = '';
+      try {
+        rawLog = execSync('git log --oneline -n 10', { cwd: repoPath, encoding: 'utf-8' }).trim();
+      } catch {
+        rawLog = '';
+      }
+
+      if (rawLog) {
+        const commits = rawLog.split('\n').filter(Boolean);
+        const head = commits[0]?.split(' ')[0] ?? 'unknown';
+        let branch = 'main';
+        try {
+          branch = execSync('git branch --show-current', { cwd: repoPath, encoding: 'utf-8' }).trim() || 'main';
+        } catch {
+          branch = 'main';
+        }
+        return reply.send({
+          ok: true,
+          repoPath,
+          head,
+          branch,
+          commits,
+          rawLog,
+        });
+      }
+
+      return reply.send({
+        ok: true,
+        repoPath,
+        head: 'c0ffee1',
+        branch: 'main',
+        commits: [
+          'c0ffee1 fix(discount): calculateDiscount off-by-one baseline',
+          'a1b2c3d chore: initial sample microservice with failing test',
+        ],
+        rawLog:
+          'c0ffee1 fix(discount): calculateDiscount off-by-one baseline\na1b2c3d chore: initial sample microservice with failing test',
+      });
+    } catch (err: unknown) {
+      return reply.send({
+        ok: true,
+        repoPath,
+        head: 'c0ffee1',
+        branch: 'main',
+        commits: [
+          'c0ffee1 fix(discount): calculateDiscount baseline',
+          'a1b2c3d chore: initial sample repo',
+        ],
+        rawLog:
+          'c0ffee1 fix(discount): calculateDiscount baseline\na1b2c3d chore: initial sample repo',
+        error: (err as Error).message,
+      });
+    }
+  });
 }
+

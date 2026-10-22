@@ -15,12 +15,14 @@ import { Login } from './pages/Login';
 import { PendingRequests } from './pages/PendingRequests';
 import { RequestDetail } from './pages/RequestDetail';
 import { AuditLog } from './pages/AuditLog';
+import { ProtectedRepoPanel } from './components/ProtectedRepoPanel';
 
 export const App: React.FC = () => {
   const [session, setSession] = useState<AuthSession>(authService.getCurrentSession());
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
-  const [currentTab, setCurrentTab] = useState<'requests' | 'audit' | 'detail'>('requests');
+  const [currentTab, setCurrentTab] = useState<'requests' | 'audit' | 'detail' | 'repo'>('requests');
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
+  const [decisionCount, setDecisionCount] = useState<number>(0);
 
   const [actions, setActions] = useState<ActionRequest[]>([]);
   const [selectedAction, setSelectedAction] = useState<ActionRequest | null>(null);
@@ -92,6 +94,7 @@ export const App: React.FC = () => {
   const handleApprove = async (id: string, hash: string) => {
     const res = await approveAction(id, session.user.id, hash);
     if (res.success) {
+      setDecisionCount((c) => c + 1);
       setNotification({
         message: `✓ Approved action ${id.slice(0, 10)}... by ${session.user.name} (${session.user.role.split(' ')[0]})`,
         type: 'success',
@@ -113,6 +116,7 @@ export const App: React.FC = () => {
   const handleReject = async (id: string, reason?: string) => {
     const res = await rejectAction(id, session.user.id, reason);
     if (res.success) {
+      setDecisionCount((c) => c + 1);
       setNotification({
         message: `Action ${id.slice(0, 10)}... was rejected by ${session.user.name}.`,
         type: 'info',
@@ -267,6 +271,27 @@ export const App: React.FC = () => {
             onRefresh={loadData}
             onSelectAction={handleSelectAction}
           />
+        )}
+
+        {currentTab === 'repo' && (
+          <div>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h1
+                style={{
+                  fontSize: '1.85rem',
+                  fontWeight: 800,
+                  letterSpacing: '-0.02em',
+                  marginBottom: '0.35rem',
+                }}
+              >
+                Protected Repository Log
+              </h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
+                Verifiable commit history of the protected repository. Changes appear only after 2-of-2 guardian approval and passing automated test suite.
+              </p>
+            </div>
+            <ProtectedRepoPanel refreshTrigger={decisionCount} />
+          </div>
         )}
       </main>
     </div>

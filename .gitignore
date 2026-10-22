@@ -16,3 +16,6 @@ coverage/
 .vite/
 .turbo/
 *.tsbuildinfo
+mock-env/protected-repo/
+mock-env/agent-workspace/
+.gateway-tmp/

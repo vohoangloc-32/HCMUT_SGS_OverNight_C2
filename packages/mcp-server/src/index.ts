@@ -25,7 +25,7 @@ import {
   CodeChangeParametersSchema,
 } from '@key-holder/shared';
 import { execSync } from 'child_process';
-import { createHash } from 'crypto';
+import { existsSync } from 'fs';
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? 'http://localhost:3001';
 const PROPOSER_USER_ID = process.env.MCP_PROPOSER_USER_ID ?? 'mcp-agent';
@@ -200,16 +200,148 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   }
 
-  // Validate parameters against shared schema
+  // Code change tool: compute diff in workspace against protected repo HEAD
   let parameters: Record<string, unknown>;
-  try {
-    parameters = validateToolArgs(name, args);
-  } catch (err: unknown) {
-    const e = err as Error;
-    return {
-      content: [{ type: 'text', text: `Validation error: ${e.message}` }],
-      isError: true,
+  if (name === 'request_code_change') {
+    const rawArgs = (args ?? {}) as Record<string, unknown>;
+    const title = typeof rawArgs.title === 'string' ? rawArgs.title.trim() : '';
+    const description = typeof rawArgs.description === 'string' ? rawArgs.description.trim() : '';
+    const workspacePath =
+      typeof rawArgs.workspace_path === 'string' ? rawArgs.workspace_path.trim() : '';
+
+    if (!title) {
+      return {
+        content: [{ type: 'text', text: 'Validation error: "title" is required and cannot be empty.' }],
+        isError: true,
+      };
+    }
+    if (!description) {
+      return {
+        content: [{ type: 'text', text: 'Validation error: "description" is required and cannot be empty.' }],
+        isError: true,
+      };
+    }
+    if (!workspacePath) {
+      return {
+        content: [{ type: 'text', text: 'Validation error: "workspace_path" is required and cannot be empty.' }],
+        isError: true,
+      };
+    }
+
+    if (!existsSync(workspacePath)) {
+      return {
+        content: [{ type: 'text', text: `Validation error: workspace_path does not exist: "${workspacePath}"` }],
+        isError: true,
+      };
+    }
+
+    // Determine baseSha from gateway /repo/log or workspace git HEAD
+    let baseSha = '';
+    try {
+      const repoRes = await fetch(`${GATEWAY_URL}/repo/log`);
+      if (repoRes.ok) {
+        const logData = (await repoRes.json()) as { ok?: boolean; head?: string };
+        if (logData.ok && logData.head && logData.head !== 'unknown') {
+          baseSha = logData.head.trim();
+        }
+      }
+    } catch {
+      // Gateway /repo/log may not be available; fallback to workspace git
+    }
+
+    if (!baseSha) {
+      try {
+        baseSha = execSync('git rev-parse HEAD', { cwd: workspacePath, encoding: 'utf-8' }).trim();
+      } catch (err) {
+        return {
+          content: [
+            { type: 'text', text: `Failed to determine git HEAD in workspace: ${(err as Error).message}` },
+          ],
+          isError: true,
+        };
+      }
+    }
+
+    // Stage intent-to-add for untracked files
+    try {
+      execSync('git add -N .', { cwd: workspacePath, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch {
+      // Best effort
+    }
+
+    let patch = '';
+    try {
+      patch = execSync(`git diff ${baseSha}`, {
+        cwd: workspacePath,
+        encoding: 'utf-8',
+        maxBuffer: 10 * 1024 * 1024,
+      }).trim();
+    } catch {
+      try {
+        patch = execSync('git diff HEAD', {
+          cwd: workspacePath,
+          encoding: 'utf-8',
+          maxBuffer: 10 * 1024 * 1024,
+        }).trim();
+      } catch (err) {
+        return {
+          content: [{ type: 'text', text: `Failed to generate git diff: ${(err as Error).message}` }],
+          isError: true,
+        };
+      }
+    }
+
+    if (!patch) {
+      return {
+        content: [{ type: 'text', text: 'No code changes detected in workspace. Diff is empty.' }],
+        isError: true,
+      };
+    }
+
+    let filesTouched: string[] = [];
+    try {
+      const filesOut = execSync(`git diff --name-only ${baseSha}`, {
+        cwd: workspacePath,
+        encoding: 'utf-8',
+      }).trim();
+      filesTouched = filesOut.split(/\r?\n/).map((f) => f.trim()).filter(Boolean);
+    } catch {
+      try {
+        const filesOut = execSync('git diff --name-only HEAD', {
+          cwd: workspacePath,
+          encoding: 'utf-8',
+        }).trim();
+        filesTouched = filesOut.split(/\r?\n/).map((f) => f.trim()).filter(Boolean);
+      } catch {
+        const matches = patch.match(/^diff --git a\/(.+?) b\/(.+?)$/gm);
+        if (matches) {
+          filesTouched = matches.map((m) => m.replace(/^diff --git a\/(.+?) b\/.+$/, '$1'));
+        }
+      }
+    }
+
+    if (filesTouched.length === 0) {
+      filesTouched = ['workspace'];
+    }
+
+    parameters = {
+      title,
+      description,
+      patch,
+      baseSha,
+      filesTouched,
     };
+  } else {
+    // Validate parameters against shared schema
+    try {
+      parameters = validateToolArgs(name, args);
+    } catch (err: unknown) {
+      const e = err as Error;
+      return {
+        content: [{ type: 'text', text: `Validation error: ${e.message}` }],
+        isError: true,
+      };
+    }
   }
 
   // Call gateway to create an Action Request
@@ -278,6 +410,7 @@ function validateToolArgs(toolName: string, args: unknown): Record<string, unkno
     request_deploy: DeployParametersSchema,
     request_use_secret: UseSecretParametersSchema,
     request_send_external: SendExternalParametersSchema,
+    request_code_change: CodeChangeParametersSchema,
   };
 
   const schema = schemas[toolName];

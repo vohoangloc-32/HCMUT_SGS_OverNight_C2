@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import type { ActionRequest, Approval } from '@key-holder/shared';
 import { RiskBadge } from '../components/RiskBadge';
+import { DiffViewer } from '../components/DiffViewer';
+import { ProtectedRepoPanel } from '../components/ProtectedRepoPanel';
 
 interface RequestDetailProps {
   action: ActionRequest | null;
@@ -23,6 +25,7 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [decisionCount, setDecisionCount] = useState<number>(0);
 
   // Loading State
   if (loading) {
@@ -71,6 +74,7 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
     setErrorMessage(null);
     try {
       await onApprove(action.id, action.parametersHash);
+      setDecisionCount((c) => c + 1);
     } catch (err: unknown) {
       setErrorMessage((err as Error).message || 'Failed to approve action request');
     } finally {
@@ -84,6 +88,7 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
     try {
       await onReject(action.id, rejectReason);
       setShowRejectModal(false);
+      setDecisionCount((c) => c + 1);
     } catch (err: unknown) {
       setErrorMessage((err as Error).message || 'Failed to reject action request');
     } finally {
@@ -292,7 +297,9 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                     letterSpacing: '0.05em',
                   }}
                 >
-                  Exact Action Parameters (Verifiable Payload)
+                  {action.tool === 'request_code_change'
+                    ? 'Code Change Request (Diff & Target Files)'
+                    : 'Exact Action Parameters (Verifiable Payload)'}
                 </label>
                 <span
                   style={{
@@ -304,20 +311,76 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
                   Tool: {action.tool}
                 </span>
               </div>
-              <pre
-                className="code-block"
-                style={{
-                  fontSize: '0.9rem',
-                  lineHeight: 1.5,
-                  background: '#05070c',
-                  border: '1px solid var(--border-subtle)',
-                  padding: '1.25rem',
-                  borderRadius: '8px',
-                  color: '#e2e8f0',
-                }}
-              >
-                {JSON.stringify(action.parameters, null, 2)}
-              </pre>
+
+              {action.tool === 'request_code_change' ? (
+                <div>
+                  <div
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '8px',
+                      padding: '1.1rem',
+                      marginBottom: '1rem',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        color: 'var(--text-muted)',
+                        marginBottom: '0.25rem',
+                      }}
+                    >
+                      Change Title & Purpose
+                    </div>
+                    <h3
+                      style={{
+                        fontSize: '1.15rem',
+                        fontWeight: 700,
+                        color: '#f8fafc',
+                        marginBottom: '0.45rem',
+                      }}
+                    >
+                      {String(
+                        (action.parameters as Record<string, unknown>).title ?? 'Code Change'
+                      )}
+                    </h3>
+                    <p style={{ color: '#cbd5e1', fontSize: '0.92rem', lineHeight: 1.5, margin: 0 }}>
+                      {String(
+                        (action.parameters as Record<string, unknown>).description ??
+                          'No description provided'
+                      )}
+                    </p>
+                  </div>
+
+                  <DiffViewer
+                    patch={String((action.parameters as Record<string, unknown>).patch ?? '')}
+                    baseSha={String((action.parameters as Record<string, unknown>).baseSha ?? '')}
+                    filesTouched={
+                      Array.isArray((action.parameters as Record<string, unknown>).filesTouched)
+                        ? ((action.parameters as Record<string, unknown>).filesTouched as string[])
+                        : []
+                    }
+                    riskSignals={action.riskSignals}
+                  />
+                </div>
+              ) : (
+                <pre
+                  className="code-block"
+                  style={{
+                    fontSize: '0.9rem',
+                    lineHeight: 1.5,
+                    background: '#05070c',
+                    border: '1px solid var(--border-subtle)',
+                    padding: '1.25rem',
+                    borderRadius: '8px',
+                    color: '#e2e8f0',
+                  }}
+                >
+                  {JSON.stringify(action.parameters, null, 2)}
+                </pre>
+              )}
             </div>
 
             {/* Parameter-Bound Canonical Hash */}
@@ -534,6 +597,9 @@ export const RequestDetail: React.FC<RequestDetailProps> = ({
               </div>
             )}
           </div>
+
+          {/* Live Protected Repo Log Panel */}
+          <ProtectedRepoPanel refreshTrigger={decisionCount} />
         </div>
 
         {/* Right Column: Quorum Progress & Origin Context */}

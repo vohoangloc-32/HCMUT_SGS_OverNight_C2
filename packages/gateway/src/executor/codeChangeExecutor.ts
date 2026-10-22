@@ -19,7 +19,7 @@
  */
 import { execSync, type ExecSyncOptionsWithStringEncoding } from 'child_process';
 import { writeFileSync, unlinkSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { createHash, randomBytes } from 'crypto';
 import type { ActionRequest } from '@key-holder/shared';
 
@@ -134,10 +134,13 @@ export async function codeChangeExecutor(
   actionRequest: ActionRequest,
   approvers: string[]
 ): Promise<CodeChangeResult> {
-  const protectedRepoPath = process.env.PROTECTED_REPO_PATH;
-  if (!protectedRepoPath) {
-    return { ok: false, detail: 'PROTECTED_REPO_PATH environment variable not set' };
-  }
+  const rawPath = process.env.PROTECTED_REPO_PATH ?? './mock-env/protected-repo';
+  const candidates = [
+    resolve(rawPath),
+    resolve(process.cwd(), rawPath),
+    resolve(process.cwd(), '../../', rawPath.replace(/^\.\.\/\.\.\//, '').replace(/^\.\//, '')),
+  ];
+  const protectedRepoPath = candidates.find((p) => existsSync(p)) ?? resolve(rawPath);
 
   if (!existsSync(protectedRepoPath)) {
     return { ok: false, detail: `Protected repo path does not exist: ${protectedRepoPath}` };

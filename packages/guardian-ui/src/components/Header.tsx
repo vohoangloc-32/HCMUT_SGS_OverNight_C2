@@ -2,8 +2,8 @@ import React from 'react';
 import { authService, type GuardianUser } from '../auth';
 
 interface HeaderProps {
-  currentTab: 'requests' | 'audit' | 'detail';
-  setCurrentTab: (tab: 'requests' | 'audit') => void;
+  currentTab: 'requests' | 'audit' | 'detail' | 'repo';
+  setCurrentTab: (tab: 'requests' | 'audit' | 'repo') => void;
   currentGuardian: string;
   setCurrentGuardian: (guardian: string) => void;
   isMock: boolean;
@@ -66,6 +66,12 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => setCurrentTab('requests')}
             >
               Pending Requests
+            </button>
+            <button
+              className={`nav-link ${currentTab === 'repo' ? 'active' : ''}`}
+              onClick={() => setCurrentTab('repo')}
+            >
+              Protected Repo
             </button>
             <button
               className={`nav-link ${currentTab === 'audit' ? 'active' : ''}`}

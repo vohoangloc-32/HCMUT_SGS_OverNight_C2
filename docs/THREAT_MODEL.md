@@ -52,6 +52,7 @@ To maintain strict truth-in-documentation, the system separates capabilities acr
 |-------|-------------|----------|----------------------|
 | **Production Deploy Keys** | Critical | Host / Protected Env | Intercepted behind `request_deploy`; executed only after 2-of-3 quorum |
 | **API Keys & Vault Secrets** | Critical | Secret Vault / Gateway | Intercepted behind `request_use_secret`; decrypted only post-quorum; agent receives only opaque handle |
+| **Protected Git Repository** | Critical | `PROTECTED_REPO_PATH` | Intercepted behind `request_code_change`; agent has NO write access; tests executed on temp branch; merged only after 2/2 quorum |
 | **Outbound Data Channels** | High | Gateway Network Layer | Intercepted behind `request_send_external`; flagged by deterministic risk signals |
 | **Guardian Identities** | High | TideCloak / Threshold | PRISM threshold authentication; VVK threshold-signed JWTs |
 | **Action Requests Store** | Medium | Gateway Store | Parameter hash binding (`sha256`); approvals bound to hash |
@@ -96,7 +97,8 @@ To maintain strict truth-in-documentation, the system separates capabilities acr
 |-----------------|------------------|------------------------------|
 | **Guardians Being Deceived / Social Engineering** | Technical controls cannot prevent human guardians from being tricked into approving a malicious request. | *"Quorum security is strictly bounded by the human diligence and verification of the minimum threshold (N guardians)."* |
 | **Hasty Review / Rubber-Stamping** | If 2 out of 3 guardians hastily approve without inspecting commit hashes or payload references. | *"Quorum enforces authority distribution, not the depth of human code review."* |
-| **Forgotten Gates** | Sensitive actions not placed behind the gateway's three MCP tools. | *"The gateway can only protect capabilities explicitly mediated through its interface."* |
+| **Shared OS User (PoC Boundary)** | In this local prototype, the agent and gateway share the host OS user. | *"Filesystem separation between agent workspace and PROTECTED_REPO_PATH is an architectural pattern, not an OS sandbox."* |
+| **Forgotten Gates** | Sensitive actions not placed behind the gateway's MCP tools (`request_deploy`, `request_use_secret`, `request_send_external`, `request_code_change`). | *"The gateway can only protect capabilities explicitly mediated through its interface."* |
 | **Agents with Unrestricted Local Terminal Access & Secrets on the Machine** | If secrets already reside in plain text within `.bashrc`, `.env`, or local files accessible to the agent process. | *"Gateway protection assumes secrets are segregated behind the gateway interface; local secrets on the agent's host bypass mediation."* |
 | **Compromised Host OS Running Gateway** | If an attacker has root access on the machine hosting the gateway process itself. | *"Host compromise requires container isolation, remote HSMs, and live Tide Fabric participation."* |
 | **Network Man-in-the-Middle (without TLS)** | The hackathon prototype runs locally over HTTP (`localhost`). | *"Production deployments require mandatory mutual TLS (mTLS) and verified TideCloak OIDC tokens."* |
@@ -110,11 +112,13 @@ To maintain strict truth-in-documentation, the system separates capabilities acr
 | **Agent Context Only**<br>*(Prompt Injection)* | Deploy Malicious Code | 🔴 **Allowed** (Instant deploy) | 🟢 **Blocked** (Needs 2-of-3 quorum) | Enforced by Gateway Quorum Engine |
 | | Exfiltrate Secrets | 🔴 **Allowed** (Agent reads env) | 🟢 **Blocked** (Agent never gets key) | Enforced by Gateway SecretStore mediation |
 | | Outbound Network Send | 🔴 **Allowed** (Direct curl/fetch) | 🟢 **Blocked** (Flagged & rejected in UI) | Enforced by Gateway Risk Signals & UI |
+| | Inject Malicious Code Patch | 🔴 **Allowed** (Pushes directly to repo) | 🟢 **Blocked** (Diff reviewed in UI, tests verified, needs 2/2 quorum) | Enforced by CodeChangeExecutor & Quorum |
 | | Bypass Audit Trail | 🔴 **Possible** (No audit) | 🟢 **Blocked** (Append-only audit log) | Enforced by Gateway Audit Store |
 | **1 Guardian Account**<br>*(Stolen Credential)* | Deploy Malicious Code | 🔴 **Allowed** (Single-user CI/CD) | 🟢 **Blocked** (1/2 approvals, quorum fails) | Enforced by Gateway Quorum Engine |
 | | Self-Approve Malicious PR | 🔴 **Allowed** (If permissions allow)| 🟢 **Blocked** (`SELF_APPROVAL` 409 error) | Enforced by Gateway Business Rules |
 | | Exfiltrate Database Secret | 🔴 **Allowed** (Single token leak)| 🟢 **Blocked** (Requires 2nd signature) | Enforced by Multi-Party Threshold |
-| | Forge Approval on Tampered Hash | 🔴 **Allowed** (No hash check) | 🟢 **Blocked** (`HASH_MISMATCH` 422 error) | Enforced by Parameter Binding |
+| | Force Malicious Code Merge | 🔴 **Allowed** (Single approval push)| 🟢 **Blocked** (Requires 2 independent guardian signatures) | Enforced by Gateway Quorum Engine |
+| | Forge Approval on Tampered Hash | 🔴 **Allowed** (No hash check) | 🟢 **Blocked** (`HASH_MISMATCH` 409/422 error) | Enforced by Parameter Binding |
 | **Gateway DB Leaked**<br>*(Read Access to DB)* | Read Production Secrets | 🔴 **Plaintext exposed** | 🟢 **Blocked** (Ciphertext only) | Enforced by Gateway AES-256-GCM secret store (key in memory/env; NOT Tide tag encryption). |
 | | Fabricate Valid Approvals | 🔴 **Easy** (Update DB table) | 🟢 **Blocked** (Signatures bound to Tide JWTs) | Enforced by TideAdapter JWT verification |
 | **2 Guardian Accounts**<br>*(Collusion / Breach)* | Force Malicious Deploy | 🔴 **Allowed** | 🔴 **Allowed** (Quorum satisfied) | **Accepted Limitation**: 2-of-3 compromise meets quorum by design. |
@@ -130,7 +134,13 @@ export type RiskSignal =
   | 'external-domain'       // Target URL hostname is outside trusted corporate domains
   | 'unknown-destination'   // Target URL has never previously succeeded in the audit log
   | 'sensitive-tag'         // Secret name matches high-privilege credentials pattern (PROD, KEY, TOKEN)
-  | 'unusual-volume';       // Agent request burst or diagnostic payload exceeds threshold
+  | 'unusual-volume'        // Agent request burst or diagnostic payload exceeds threshold
+  | 'new-network-call'      // Code patch introduces outbound fetch/http request
+  | 'env-access'            // Code patch references process.env, credentials, or .env files
+  | 'new-dependency'        // Code patch modifies package dependencies
+  | 'ci-config-change'      // Code patch alters CI workflows or build scripts
+  | 'large-diff'            // Code patch exceeds 500 lines modified
+  | 'protected-path';       // Code patch targets protected system or gateway files
 ```
 
 ---

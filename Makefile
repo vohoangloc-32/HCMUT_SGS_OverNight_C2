@@ -63,6 +63,14 @@ demo-5:
 	@echo "==> Scenario 5 (stretch): Parameter swap after approval"
 	bash scripts/scenario-5-param-swap.sh
 
+demo-a:
+	@echo "==> Scenario A: Real code change (fix off-by-one bug & merge)"
+	bash scripts/real-code-change.sh
+
+demo-b:
+	@echo "==> Scenario B: Real code injection defense (risk signals & veto)"
+	bash scripts/real-code-injection.sh
+
 # ── Demo Recording Launcher ───────────────────────────────────────────────────
 demo: reset
 	@echo "==> Starting Key-Holder Gateway complete demo environment for recording..."

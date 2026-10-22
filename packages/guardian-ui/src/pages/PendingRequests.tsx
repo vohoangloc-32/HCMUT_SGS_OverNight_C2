@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { ActionRequest, Approval, Status } from '@key-holder/shared';
 import { RiskBadge } from '../components/RiskBadge';
 import { DemoScenariosBar } from '../components/DemoScenariosBar';
+import { ProtectedRepoPanel } from '../components/ProtectedRepoPanel';
 import { authService } from '../auth';
 
 interface PendingRequestsProps {
@@ -47,6 +48,7 @@ export const PendingRequests: React.FC<PendingRequestsProps> = ({
     if (tool === 'request_deploy') return '🚀';
     if (tool === 'request_use_secret') return '🔑';
     if (tool === 'request_send_external') return '🌐';
+    if (tool === 'request_code_change') return '📝';
     return '⚙️';
   };
 
@@ -344,6 +346,9 @@ export const PendingRequests: React.FC<PendingRequestsProps> = ({
           </table>
         )}
       </div>
+
+      {/* Protected Repository Status Panel */}
+      <ProtectedRepoPanel compact={false} />
     </div>
   );
 };
