@@ -21,7 +21,8 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
 }) => {
   const availableGuardians = authService.listAvailableGuardians();
-  const activeGuardianObj = availableGuardians.find((g) => g.id === currentGuardian) ?? availableGuardians[0];
+  const activeGuardianObj =
+    availableGuardians.find((g) => g.id === currentGuardian) ?? availableGuardians[0];
 
   const handleGuardianChange = async (newId: string) => {
     await authService.login(newId);
@@ -32,12 +33,25 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="header">
       <div className="header-content">
         <div style={{ display: 'flex', alignItems: 'center', gap: '2.5rem' }}>
-          <div className="brand" style={{ cursor: 'pointer' }} onClick={() => setCurrentTab('requests')}>
+          <div
+            className="brand"
+            style={{ cursor: 'pointer' }}
+            onClick={() => setCurrentTab('requests')}
+          >
             <div className="brand-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                <path d="M12 8v4"/>
-                <path d="M12 16h.01"/>
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                <path d="M12 8v4" />
+                <path d="M12 16h.01" />
               </svg>
             </div>
             <div>

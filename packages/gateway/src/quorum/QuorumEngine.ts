@@ -27,10 +27,7 @@ export interface QuorumEngine {
    * Record a guardian's rejection of a request.
    * Any single rejection terminates the request.
    */
-  recordRejection(
-    request: ActionRequest,
-    guardianId: string
-  ): Promise<{ approvals: Approval[] }>;
+  recordRejection(request: ActionRequest, guardianId: string): Promise<{ approvals: Approval[] }>;
 
   /**
    * Check whether quorum is currently met for a request.

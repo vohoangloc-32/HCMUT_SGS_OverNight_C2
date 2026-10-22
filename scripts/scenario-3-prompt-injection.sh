@@ -54,12 +54,13 @@ if [ "$IS_LIVE" -eq 1 ]; then
         "agent": "Claude-Code-Agent-v1"
       },
       "source": {
-        "kind": "issue",
+        "kind": "github-issue",
         "reference": "mock-env/fixtures/malicious-issue.md"
       }
     }')
   ACTION_ID=$(echo "$CREATE_RES" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
-  RISK_FLAGS=$(echo "$CREATE_RES" | grep -o '"riskSignals":\[[^]]*\]' || echo '["external-domain", "unknown-destination"]')
+  GET_RES=$(curl -s "${GATEWAY_URL}/actions/${ACTION_ID}")
+  RISK_FLAGS=$(echo "$GET_RES" | grep -o '"riskSignals":\[[^]]*\]' || echo '["external-domain", "unknown-destination"]')
   echo "Action Request Created: ${ACTION_ID}"
   echo "Risk Flags Triggered by Gateway: ${RISK_FLAGS}"
 else

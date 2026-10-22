@@ -20,13 +20,7 @@ export const STATUSES = ['pending', 'approved', 'rejected', 'executed', 'expired
 
 export type Status = (typeof STATUSES)[number];
 
-export const SOURCE_KINDS = [
-  'direct',
-  'github-issue',
-  'github-pr',
-  'file',
-  'unknown',
-] as const;
+export const SOURCE_KINDS = ['direct', 'github-issue', 'github-pr', 'file', 'unknown'] as const;
 
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 

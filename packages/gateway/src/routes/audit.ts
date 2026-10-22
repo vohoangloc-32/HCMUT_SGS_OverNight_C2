@@ -6,9 +6,9 @@ export async function auditRoutes(app: FastifyInstance, opts: { db: Db }) {
 
   /** GET /audit — append-only audit log */
   app.get('/audit', async (_request, reply) => {
-    const events = db
-      .prepare('SELECT * FROM audit_events ORDER BY at ASC')
-      .all() as Array<Record<string, unknown>>;
+    const events = db.prepare('SELECT * FROM audit_events ORDER BY at ASC').all() as Array<
+      Record<string, unknown>
+    >;
 
     return reply.send({
       events: events.map((e) => ({

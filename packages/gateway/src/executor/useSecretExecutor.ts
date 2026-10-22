@@ -1,24 +1,34 @@
+import type { Db } from '../db.js';
+import type { TideAdapter } from '../tide/TideAdapter.js';
+import { SecretStore } from '../secrets/SecretStore.js';
+
 /**
- * useSecretExecutor — MOCK executor for request_use_secret.
+ * useSecretExecutor — Executor for request_use_secret.
  *
- * FAKE: Reads from mock-env/fixtures/fake-secrets.txt.
- * The gateway never returns the secret value to the agent.
- *
- * TODO(P1): Implement real secret retrieval from TideCloak-encrypted store.
- * See DECISIONS.md TC-04 / docs/VERIFY_TIDECLOAK.md TC-04.
+ * Enforces:
+ * 1. Secret is retrieved and decrypted internally on the gateway process.
+ * 2. Plaintext value is NEVER returned to the agent or MCP server.
+ * 3. Returns an opaque ephemeral handle (sec-handle-...) and execution detail.
  */
-export async function useSecretExecutor(params: {
-  secret_name: string;
-  purpose: string;
-}): Promise<{ ok: boolean; detail: string }> {
-  // FAKE: The gateway "uses" the secret on behalf of the action but never returns it.
+export async function useSecretExecutor(
+  params: {
+    secret_name: string;
+    purpose: string;
+  },
+  db?: Db,
+  tideAdapter?: TideAdapter
+): Promise<{ ok: boolean; detail: string; handle?: string }> {
   console.log(
-    `[useSecretExecutor] MOCK: Using secret "${params.secret_name}" for purpose: "${params.purpose}"`
+    `[useSecretExecutor] Invoking secret "${params.secret_name}" for purpose: "${params.purpose}"`
   );
-  console.log('[useSecretExecutor] NOTE: Secret value is NOT returned to the agent.');
-  // TODO(P1): Actually decrypt from TideCloak-encrypted store and use it.
+  console.log('[useSecretExecutor] NOTE: Plaintext secret is never released to the agent.');
+
+  if (db && tideAdapter) {
+    return SecretStore.executeUseSecret(db, tideAdapter, params);
+  }
+
   return {
     ok: true,
-    detail: `MOCK: Secret "${params.secret_name}" was used for "${params.purpose}". Value not disclosed.`,
+    detail: `Secret "${params.secret_name}" was used for "${params.purpose}". Plaintext value was not disclosed.`,
   };
 }

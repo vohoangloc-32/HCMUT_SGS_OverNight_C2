@@ -49,7 +49,7 @@ if [ "$IS_LIVE" -eq 1 ]; then
         "agent": "Rogue-Agent"
       },
       "source": {
-        "kind": "manual",
+        "kind": "direct",
         "reference": "suspicious-cli-input"
       }
     }')

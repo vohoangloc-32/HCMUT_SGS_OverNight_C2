@@ -53,13 +53,28 @@ export const AuditLog: React.FC<AuditLogProps> = ({
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '1.75rem',
+        }}
+      >
         <div>
-          <h1 style={{ fontSize: '1.85rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '0.35rem' }}>
+          <h1
+            style={{
+              fontSize: '1.85rem',
+              fontWeight: 800,
+              letterSpacing: '-0.02em',
+              marginBottom: '0.35rem',
+            }}
+          >
             Audit Trail
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-            Append-only, tamper-evident log of intercepted actions, guardian approvals, and execution results.
+            Append-only, tamper-evident log of intercepted actions, guardian approvals, and
+            execution results.
           </p>
         </div>
 
@@ -75,14 +90,27 @@ export const AuditLog: React.FC<AuditLogProps> = ({
       </div>
 
       {/* Filter and Search Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '1rem',
+          marginBottom: '1.5rem',
+          flexWrap: 'wrap',
+        }}
+      >
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
           {['all', 'created', 'approved', 'executed', 'rejected', 'expired'].map((ev) => (
             <button
               key={ev}
               className={`nav-link ${filterEvent === ev ? 'active' : ''}`}
               onClick={() => setFilterEvent(ev)}
-              style={{ textTransform: 'capitalize', fontSize: '0.85rem', padding: '0.45rem 0.85rem' }}
+              style={{
+                textTransform: 'capitalize',
+                fontSize: '0.85rem',
+                padding: '0.45rem 0.85rem',
+              }}
             >
               {ev}
             </button>
@@ -117,7 +145,14 @@ export const AuditLog: React.FC<AuditLogProps> = ({
         ) : filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
             <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>📜</div>
-            <div style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.5rem' }}>
+            <div
+              style={{
+                fontSize: '1.15rem',
+                fontWeight: 700,
+                color: 'var(--text-main)',
+                marginBottom: '0.5rem',
+              }}
+            >
               No Audit Events Found
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
@@ -138,12 +173,20 @@ export const AuditLog: React.FC<AuditLogProps> = ({
             <tbody>
               {filtered.map((evt: AuditEvent) => (
                 <tr key={evt.id}>
-                  <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  <td
+                    style={{
+                      fontSize: '0.82rem',
+                      color: 'var(--text-muted)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
                     {new Date(evt.at).toLocaleDateString()} {new Date(evt.at).toLocaleTimeString()}
                   </td>
                   <td>{getEventBadge(evt.event)}</td>
                   <td>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                    <div
+                      style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}
+                    >
                       {evt.actor}
                     </div>
                   </td>
@@ -166,7 +209,20 @@ export const AuditLog: React.FC<AuditLogProps> = ({
                     </button>
                   </td>
                   <td style={{ fontSize: '0.8rem' }}>
-                    <code style={{ background: '#05070c', border: '1px solid var(--border-subtle)', padding: '0.3rem 0.6rem', borderRadius: '6px', color: '#cbd5e1', display: 'inline-block', maxWidth: '340px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <code
+                      style={{
+                        background: '#05070c',
+                        border: '1px solid var(--border-subtle)',
+                        padding: '0.3rem 0.6rem',
+                        borderRadius: '6px',
+                        color: '#cbd5e1',
+                        display: 'inline-block',
+                        maxWidth: '340px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
                       {JSON.stringify(evt.detail)}
                     </code>
                   </td>

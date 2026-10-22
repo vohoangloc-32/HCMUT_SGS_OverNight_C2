@@ -39,10 +39,18 @@ interface AuditEventRow {
   detail: string;
 }
 
+interface SecretRow {
+  name: string;
+  ciphertext: string;
+  tag: string;
+  updated_at: string;
+}
+
 class PureDb implements Db {
   private filePath: string | null = null;
   private actionRequests: Map<string, ActionRequestRow> = new Map();
   private auditEvents: AuditEventRow[] = [];
+  private secrets: Map<string, SecretRow> = new Map();
 
   constructor(dbPath: string) {
     if (dbPath !== ':memory:') {
@@ -65,6 +73,11 @@ class PureDb implements Db {
       if (Array.isArray(data.auditEvents)) {
         this.auditEvents = data.auditEvents;
       }
+      if (Array.isArray(data.secrets)) {
+        for (const row of data.secrets) {
+          this.secrets.set(row.name, row);
+        }
+      }
     } catch (err) {
       console.warn('[db] Warning: Could not read DB file, starting clean store:', err);
     }
@@ -76,6 +89,7 @@ class PureDb implements Db {
       const data = {
         actionRequests: Array.from(this.actionRequests.values()),
         auditEvents: this.auditEvents,
+        secrets: Array.from(this.secrets.values()),
       };
       writeFileSync(this.filePath, JSON.stringify(data, null, 2), 'utf-8');
     } catch (err) {
@@ -127,7 +141,10 @@ class PureDb implements Db {
     }
 
     // UPDATE action_requests SET approvals = ?, status = ? WHERE id = ?
-    if (s.includes('UPDATE action_requests') && s.includes('SET approvals = ?, status = ? WHERE id = ?')) {
+    if (
+      s.includes('UPDATE action_requests') &&
+      s.includes('SET approvals = ?, status = ? WHERE id = ?')
+    ) {
       return {
         run: (...params: unknown[]) => {
           const approvals = String(params[0]);
@@ -165,6 +182,24 @@ class PureDb implements Db {
       };
     }
 
+    // UPDATE action_requests SET status = 'expired' WHERE id = ?
+    if (s.includes('UPDATE action_requests') && s.includes("status = 'expired'")) {
+      return {
+        run: (...params: unknown[]) => {
+          const id = String(params[0]);
+          const row = this.actionRequests.get(id);
+          if (row) {
+            row.status = 'expired';
+            this.persist();
+            return { changes: 1, lastInsertRowid: 0 };
+          }
+          return { changes: 0, lastInsertRowid: 0 };
+        },
+        get: () => undefined,
+        all: () => [],
+      };
+    }
+
     // UPDATE action_requests SET approvals = ?, status = 'rejected' WHERE id = ?
     if (s.includes('UPDATE action_requests') && s.includes("status = 'rejected'")) {
       return {
@@ -191,7 +226,9 @@ class PureDb implements Db {
         run: () => ({ changes: 0, lastInsertRowid: 0 }),
         get: (...params: unknown[]) => {
           const status = String(params[0]);
-          const count = Array.from(this.actionRequests.values()).filter((r) => r.status === status).length;
+          const count = Array.from(this.actionRequests.values()).filter(
+            (r) => r.status === status
+          ).length;
           return { c: count };
         },
         all: () => [],
@@ -233,8 +270,10 @@ class PureDb implements Db {
         all: (...params: unknown[]) => {
           const limit = Number(params[0] ?? 50);
           const offset = Number(params[1] ?? 0);
-          return Array.from(this.actionRequests.values())
-            .slice(offset, offset + limit) as unknown as Record<string, unknown>[];
+          return Array.from(this.actionRequests.values()).slice(
+            offset,
+            offset + limit
+          ) as unknown as Record<string, unknown>[];
         },
       };
     }
@@ -283,6 +322,52 @@ class PureDb implements Db {
         get: () => undefined,
         all: () => {
           return [...this.auditEvents] as unknown as Record<string, unknown>[];
+        },
+      };
+    }
+
+    // INSERT OR REPLACE INTO secrets
+    if (s.includes('INTO secrets')) {
+      return {
+        run: (...params: unknown[]) => {
+          const row: SecretRow = {
+            name: String(params[0]),
+            ciphertext: String(params[1]),
+            tag: String(params[2]),
+            updated_at: String(params[3]),
+          };
+          this.secrets.set(row.name, row);
+          this.persist();
+          return { changes: 1, lastInsertRowid: 0 };
+        },
+        get: () => undefined,
+        all: () => [],
+      };
+    }
+
+    // SELECT * FROM secrets WHERE name = ?
+    if (s.includes('SELECT * FROM secrets WHERE name = ?')) {
+      return {
+        run: () => ({ changes: 0, lastInsertRowid: 0 }),
+        get: (...params: unknown[]) => {
+          const name = String(params[0]);
+          return this.secrets.get(name) as unknown as Record<string, unknown> | undefined;
+        },
+        all: (...params: unknown[]) => {
+          const name = String(params[0]);
+          const row = this.secrets.get(name);
+          return row ? [row as unknown as Record<string, unknown>] : [];
+        },
+      };
+    }
+
+    // SELECT * FROM secrets
+    if (s.includes('SELECT * FROM secrets')) {
+      return {
+        run: () => ({ changes: 0, lastInsertRowid: 0 }),
+        get: () => undefined,
+        all: () => {
+          return Array.from(this.secrets.values()) as unknown as Record<string, unknown>[];
         },
       };
     }

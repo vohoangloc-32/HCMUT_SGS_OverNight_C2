@@ -7,6 +7,8 @@ import { healthRoutes } from './routes/health.js';
 import { initDb } from './db.js';
 import { InMemoryQuorumEngine } from './quorum/InMemoryQuorumEngine.js';
 import { TideAdapterStub } from './tide/TideAdapterStub.js';
+import { TideAdapterReal } from './tide/TideAdapterReal.js';
+import { SecretStore } from './secrets/SecretStore.js';
 
 const PORT = parseInt(process.env.GATEWAY_PORT ?? '3001', 10);
 const HOST = process.env.GATEWAY_HOST ?? '0.0.0.0';
@@ -15,14 +17,18 @@ async function main() {
   // Initialise SQLite store
   const db = initDb(process.env.DATABASE_PATH ?? ':memory:');
 
-  // Quorum engine — swap InMemory for TideQuorumEngine once P1 verifies TC-02
+  // Quorum engine — default 2 of 3 guardians
   const quorumEngine = new InMemoryQuorumEngine({
     required: parseInt(process.env.QUORUM_REQUIRED ?? '2', 10),
     total: parseInt(process.env.QUORUM_TOTAL ?? '3', 10),
   });
 
-  // Tide adapter — stub until P1 verifies TideCloak integration
-  const tideAdapter = new TideAdapterStub();
+  // Tide adapter — TideAdapterReal (verified JWKS / AES-256-GCM) with fallback to stub if requested
+  const useStub = process.env.TIDE_ADAPTER_MODE === 'stub';
+  const tideAdapter = useStub ? new TideAdapterStub() : new TideAdapterReal();
+
+  // Seed encrypted secrets into DB (stored as AES-256-GCM ciphertext, never plaintext)
+  await SecretStore.seedSecrets(db, tideAdapter);
 
   const app = Fastify({ logger: true });
 

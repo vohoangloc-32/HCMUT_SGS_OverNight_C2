@@ -49,7 +49,7 @@ export const ProposerSchema = z.object({
 
 export const SourceSchema = z.object({
   kind: SourceKindSchema,
-  reference: z.string().url().optional(),
+  reference: z.string().min(1).max(1000).optional(),
 });
 
 export const ApprovalSchema = z.object({

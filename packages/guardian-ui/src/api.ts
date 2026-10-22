@@ -252,13 +252,17 @@ export function resetMockData() {
   mockAudit = JSON.parse(JSON.stringify(INITIAL_MOCK_AUDIT));
 }
 
-export async function fetchActions(status?: string): Promise<{ data: ActionRequest[]; isMock: boolean }> {
+export async function fetchActions(
+  status?: string
+): Promise<{ data: ActionRequest[]; isMock: boolean }> {
   if (forceMockMode) {
-    const filtered = status && status !== 'all' ? mockActions.filter((a) => a.status === status) : mockActions;
+    const filtered =
+      status && status !== 'all' ? mockActions.filter((a) => a.status === status) : mockActions;
     return { data: filtered, isMock: true };
   }
   try {
-    const url = status && status !== 'all' ? `/actions?status=${encodeURIComponent(status)}` : '/actions';
+    const url =
+      status && status !== 'all' ? `/actions?status=${encodeURIComponent(status)}` : '/actions';
     const token = authService.getAuthToken();
     const res = await fetch(url, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -268,12 +272,15 @@ export async function fetchActions(status?: string): Promise<{ data: ActionReque
     return { data: json.items ?? json, isMock: false };
   } catch (err) {
     console.warn('Gateway unavailable, using mock data:', err);
-    const filtered = status && status !== 'all' ? mockActions.filter((a) => a.status === status) : mockActions;
+    const filtered =
+      status && status !== 'all' ? mockActions.filter((a) => a.status === status) : mockActions;
     return { data: filtered, isMock: true };
   }
 }
 
-export async function fetchActionById(id: string): Promise<{ data: ActionRequest | null; isMock: boolean }> {
+export async function fetchActionById(
+  id: string
+): Promise<{ data: ActionRequest | null; isMock: boolean }> {
   if (forceMockMode) {
     const found = mockActions.find((a) => a.id === id) ?? null;
     return { data: found, isMock: true };

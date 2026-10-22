@@ -67,7 +67,8 @@ export class InMemoryQuorumEngine implements QuorumEngine {
     };
 
     const approvals = [...request.approvals, newApproval];
-    const quorumReached = approvals.filter((a: Approval) => a.decision === 'approve').length >= this.required;
+    const quorumReached =
+      approvals.filter((a: Approval) => a.decision === 'approve').length >= this.required;
 
     return { approvals, quorumReached };
   }

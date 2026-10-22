@@ -16,10 +16,7 @@
 import 'dotenv/config';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import {
   DeployParametersSchema,
@@ -59,7 +56,8 @@ const TOOLS = [
       properties: {
         secret_name: {
           type: 'string',
-          description: 'Name of the secret (e.g. "PROD_API_KEY"). Uppercase alphanumeric + underscore.',
+          description:
+            'Name of the secret (e.g. "PROD_API_KEY"). Uppercase alphanumeric + underscore.',
         },
         purpose: {
           type: 'string',
@@ -81,10 +79,24 @@ const TOOLS = [
         destination: { type: 'string', description: 'Full URL of the destination endpoint.' },
         payload_ref: {
           type: 'string',
-          description: 'Reference to the payload (e.g. file path, S3 key) — NOT the payload itself.',
+          description:
+            'Reference to the payload (e.g. file path, S3 key) — NOT the payload itself.',
         },
       },
       required: ['destination', 'payload_ref'],
+    },
+  },
+  {
+    name: 'get_action_status',
+    description:
+      'Check the current approval and execution status of an action request. ' +
+      'Read-only: does NOT execute or modify anything.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Action Request ID (ULID) to check' },
+      },
+      required: ['id'],
     },
   },
 ];
@@ -102,6 +114,65 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+
+  // Read-only status tool
+  if (name === 'get_action_status') {
+    const id = (args as { id?: string })?.id;
+    if (!id || typeof id !== 'string') {
+      return {
+        content: [{ type: 'text', text: 'Validation error: Missing or invalid "id" parameter.' }],
+        isError: true,
+      };
+    }
+
+    try {
+      const response = await fetch(`${GATEWAY_URL}/actions/${encodeURIComponent(id)}`);
+      if (!response.ok) {
+        return {
+          content: [{ type: 'text', text: `Action request not found (HTTP ${response.status})` }],
+          isError: true,
+        };
+      }
+
+      const data = (await response.json()) as {
+        id: string;
+        tool: string;
+        status: string;
+        approvals: unknown[];
+        requiredApprovals: number;
+        totalGuardians: number;
+        parametersHash: string;
+        riskSignals: string[];
+        createdAt: string;
+        expiresAt: string;
+      };
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: [
+              `📋 Action Request Status`,
+              `ID: ${data.id}`,
+              `Tool: ${data.tool}`,
+              `Status: ${data.status}`,
+              `Approvals: ${data.approvals?.length ?? 0} of ${data.requiredApprovals} required (${data.totalGuardians} guardians total)`,
+              `Risk Signals: ${data.riskSignals?.length ? data.riskSignals.join(', ') : 'none'}`,
+              `Parameters Hash: ${data.parametersHash}`,
+              `Created: ${data.createdAt}`,
+              `Expires: ${data.expiresAt}`,
+            ].join('\n'),
+          },
+        ],
+      };
+    } catch (err: unknown) {
+      const e = err as Error;
+      return {
+        content: [{ type: 'text', text: `Failed to query gateway: ${e.message}` }],
+        isError: true,
+      };
+    }
+  }
 
   // Validate parameters against shared schema
   let parameters: Record<string, unknown>;
@@ -176,10 +247,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
-function validateToolArgs(
-  toolName: string,
-  args: unknown
-): Record<string, unknown> {
+function validateToolArgs(toolName: string, args: unknown): Record<string, unknown> {
   const schemas: Record<string, z.ZodTypeAny> = {
     request_deploy: DeployParametersSchema,
     request_use_secret: UseSecretParametersSchema,

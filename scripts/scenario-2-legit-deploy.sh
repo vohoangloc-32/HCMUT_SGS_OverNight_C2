@@ -49,7 +49,7 @@ if [ "$IS_LIVE" -eq 1 ]; then
         "agent": "Claude-Code-Agent-v1"
       },
       "source": {
-        "kind": "pull_request",
+        "kind": "github-pr",
         "reference": "https://github.com/org/sample-repo/pull/42"
       }
     }')

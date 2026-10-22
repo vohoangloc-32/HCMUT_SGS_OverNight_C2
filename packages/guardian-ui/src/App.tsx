@@ -27,7 +27,10 @@ export const App: React.FC = () => {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [isMock, setIsMock] = useState<boolean>(isMockModeActive());
-  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
 
   useEffect(() => {
     return authService.onAuthStateChanged((newSession) => {
@@ -43,10 +46,7 @@ export const App: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [actionsRes, auditRes] = await Promise.all([
-        fetchActions(),
-        fetchAudit(),
-      ]);
+      const [actionsRes, auditRes] = await Promise.all([fetchActions(), fetchAudit()]);
       setActions(actionsRes.data);
       setAuditEvents(auditRes.data);
       setIsMock(actionsRes.isMock);
@@ -165,9 +165,13 @@ export const App: React.FC = () => {
       <main className="main-content">
         {/* Mock mode banner */}
         {isMock && (
-          <div className="banner banner-mock" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div
+            className="banner banner-mock"
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          >
             <div>
-              <strong>🟡 Demo Mock Mode Active:</strong> Consuming canned mock dataset. Actions and audit events operate deterministically in-memory.
+              <strong>🟡 Demo Mock Mode Active:</strong> Consuming canned mock dataset. Actions and
+              audit events operate deterministically in-memory.
             </div>
             <button
               onClick={handleToggleMock}
@@ -198,21 +202,21 @@ export const App: React.FC = () => {
                 notification.type === 'success'
                   ? 'rgba(16, 185, 129, 0.15)'
                   : notification.type === 'error'
-                  ? 'rgba(239, 68, 68, 0.15)'
-                  : 'rgba(59, 130, 246, 0.15)',
+                    ? 'rgba(239, 68, 68, 0.15)'
+                    : 'rgba(59, 130, 246, 0.15)',
               border: `1px solid ${
                 notification.type === 'success'
                   ? '#10b981'
                   : notification.type === 'error'
-                  ? '#ef4444'
-                  : '#3b82f6'
+                    ? '#ef4444'
+                    : '#3b82f6'
               }`,
               color:
                 notification.type === 'success'
                   ? '#10b981'
                   : notification.type === 'error'
-                  ? '#f87171'
-                  : '#60a5fa',
+                    ? '#f87171'
+                    : '#60a5fa',
               fontWeight: 600,
               fontSize: '0.9rem',
               display: 'flex',
@@ -223,7 +227,13 @@ export const App: React.FC = () => {
             <div>{notification.message}</div>
             <button
               onClick={() => setNotification(null)}
-              style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '1rem' }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+                fontSize: '1rem',
+              }}
             >
               ✕
             </button>

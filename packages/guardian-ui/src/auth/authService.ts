@@ -49,14 +49,17 @@ class IsolatedAuthService implements AuthService {
   }
 
   private createSession(guardianId: string, simulateOidc: boolean): AuthSession {
-    const user = PRECONFIGURED_GUARDIANS.find((g) => g.id === guardianId) ?? PRECONFIGURED_GUARDIANS[0];
-    const simulatedJwt = `fake-tidecloak-jwt.${btoa(JSON.stringify({
-      sub: user.id,
-      name: user.name,
-      role: 'guardian',
-      iat: Math.floor(Date.now() / 1000),
-      iss: 'tidecloak:mock-realm',
-    }))}.fake-signature`;
+    const user =
+      PRECONFIGURED_GUARDIANS.find((g) => g.id === guardianId) ?? PRECONFIGURED_GUARDIANS[0];
+    const simulatedJwt = `fake-tidecloak-jwt.${btoa(
+      JSON.stringify({
+        sub: user.id,
+        name: user.name,
+        role: 'guardian',
+        iat: Math.floor(Date.now() / 1000),
+        iss: 'tidecloak:mock-realm',
+      })
+    )}.fake-signature`;
 
     return {
       user,

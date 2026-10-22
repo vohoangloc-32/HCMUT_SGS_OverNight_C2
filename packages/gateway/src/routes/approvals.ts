@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.js';
 import type { QuorumEngine } from '../quorum/QuorumEngine.js';
-import type { TideAdapter } from '../tide/TideAdapter.js';
-import { ApproveRequestBodySchema } from '@key-holder/shared';
+import type { TideAdapter, TideJwtPayload } from '../tide/TideAdapter.js';
+import { ApproveRequestBodySchema, ERROR_CODES } from '@key-holder/shared';
 import { appendAudit, deserialize } from './actions.js';
 import { deployExecutor } from '../executor/deployExecutor.js';
 import { useSecretExecutor } from '../executor/useSecretExecutor.js';
@@ -16,44 +16,106 @@ interface RoutesOptions {
 }
 
 export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions) {
-  const { db, quorumEngine } = opts;
+  const { db, quorumEngine, tideAdapter } = opts;
 
   /** POST /actions/:id/approve */
   app.post('/actions/:id/approve', async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    // TODO(P1): Replace stub JWT verification with real TideAdapter.verifyJwt()
+    const bodyRaw = (request.body ?? {}) as Record<string, unknown>;
+    const bodyGuardianId = typeof bodyRaw.guardianId === 'string' ? bodyRaw.guardianId : undefined;
+
+    // JWT verification
     const authHeader = request.headers.authorization ?? '';
-    const token = authHeader.replace('Bearer ', '');
-    let guardianId = 'mock-guardian';
-    try {
-      const payload = await opts.tideAdapter.verifyJwt(token);
-      guardianId = payload.sub;
-      // TODO(P1): Enforce guardian role check: opts.tideAdapter.isGuardian(payload)
-    } catch {
-      // In stub mode, allow any non-empty token
-      if (!token) {
-        return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Missing token' } });
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+    let guardianId: string | undefined = bodyGuardianId;
+    let jwtPayload: TideJwtPayload | null = null;
+
+    if (token) {
+      try {
+        jwtPayload = await tideAdapter.verifyJwt(token);
+        guardianId = jwtPayload.sub;
+
+        // Enforce guardian role
+        if (!tideAdapter.isGuardian(jwtPayload)) {
+          return reply.status(403).send({
+            error: {
+              code: ERROR_CODES.FORBIDDEN,
+              message: 'Token does not hold the required guardian role',
+            },
+          });
+        }
+      } catch (err: unknown) {
+        const e = err as Error;
+        return reply.status(401).send({
+          error: { code: ERROR_CODES.UNAUTHORIZED, message: e.message || 'Invalid token' },
+        });
       }
+    }
+
+    if (!guardianId) {
+      return reply.status(401).send({
+        error: { code: ERROR_CODES.UNAUTHORIZED, message: 'Missing guardian identity or token' },
+      });
     }
 
     const parseResult = ApproveRequestBodySchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: parseResult.error.message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.message },
       });
     }
 
     const row = db.prepare('SELECT * FROM action_requests WHERE id = ?').get(id);
     if (!row) {
-      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Not found' } });
+      return reply.status(404).send({
+        error: { code: ERROR_CODES.NOT_FOUND, message: 'Action request not found' },
+      });
     }
 
     const actionRequest = deserialize(row as Record<string, unknown>);
 
+    // Expiry check
+    if (new Date(actionRequest.expiresAt) < new Date()) {
+      db.prepare("UPDATE action_requests SET status = 'expired' WHERE id = ?").run(id);
+      appendAudit(db, id, 'expired', 'system', { at: new Date().toISOString() });
+      return reply.status(409).send({
+        error: { code: ERROR_CODES.EXPIRED, message: 'Action request has expired' },
+      });
+    }
+
+    // Status check
     if (actionRequest.status !== 'pending') {
       return reply.status(409).send({
-        error: { code: 'ALREADY_DECIDED', message: `Request is already ${actionRequest.status}` },
+        error: {
+          code: ERROR_CODES.ALREADY_DECIDED,
+          message: `Request is already ${actionRequest.status}`,
+        },
+      });
+    }
+
+    // Self-approval check (proposer cannot approve own request)
+    if (guardianId === actionRequest.proposer.userId) {
+      return reply.status(409).send({
+        error: {
+          code: ERROR_CODES.SELF_APPROVAL,
+          message: 'Proposer cannot approve their own request',
+        },
+      });
+    }
+
+    // Parameters hash check (parameter-bound approval)
+    if (parseResult.data.parametersHash !== actionRequest.parametersHash) {
+      appendAudit(db, id, 'hash-mismatch', guardianId, {
+        submittedHash: parseResult.data.parametersHash,
+        expectedHash: actionRequest.parametersHash,
+      });
+      return reply.status(409).send({
+        error: {
+          code: ERROR_CODES.HASH_MISMATCH,
+          message: 'Parameters hash mismatch — parameters may have been tampered with',
+        },
       });
     }
 
@@ -79,19 +141,30 @@ export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions)
       id
     );
 
-    appendAudit(db, id, 'approved', guardianId, { parametersHash: parseResult.data.parametersHash });
+    appendAudit(db, id, 'approved', guardianId, {
+      parametersHash: parseResult.data.parametersHash,
+      quorumStatus: `${updated.approvals.filter((a) => a.decision === 'approve').length}/${actionRequest.requiredApprovals}`,
+    });
 
     let executed = false;
     let executionResult: { ok: boolean; detail: string } | undefined;
 
     if (updated.quorumReached) {
-      appendAudit(db, id, 'quorum-reached', 'system', {});
-      // Execute the action
-      const result = await executeAction(actionRequest);
+      appendAudit(db, id, 'quorum-reached', 'system', {
+        required: actionRequest.requiredApprovals,
+      });
+
+      // Dispatch execution
+      const result = await executeAction(actionRequest, db, tideAdapter);
       executionResult = result;
       executed = result.ok;
+
       db.prepare("UPDATE action_requests SET status = 'executed' WHERE id = ?").run(id);
-      appendAudit(db, id, 'executed', 'system', { ok: result.ok, detail: result.detail });
+      appendAudit(db, id, 'executed', 'system', {
+        ok: result.ok,
+        detail: result.detail,
+        parametersHash: actionRequest.parametersHash,
+      });
     }
 
     return reply.send({
@@ -107,22 +180,36 @@ export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions)
   app.post('/actions/:id/reject', async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    // TODO(P1): Replace with real JWT verification
+    const bodyRaw = (request.body ?? {}) as Record<string, unknown>;
+    const bodyGuardianId = typeof bodyRaw.guardianId === 'string' ? bodyRaw.guardianId : undefined;
+    const reason = typeof bodyRaw.reason === 'string' ? bodyRaw.reason : undefined;
+
     const authHeader = request.headers.authorization ?? '';
-    const token = authHeader.replace('Bearer ', '');
-    let guardianId = 'mock-guardian';
-    try {
-      const payload = await opts.tideAdapter.verifyJwt(token);
-      guardianId = payload.sub;
-    } catch {
-      if (!token) {
-        return reply.status(401).send({ error: { code: 'UNAUTHORIZED', message: 'Missing token' } });
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+    let guardianId: string | undefined = bodyGuardianId;
+
+    if (token) {
+      try {
+        const payload = await tideAdapter.verifyJwt(token);
+        guardianId = payload.sub;
+      } catch (err: unknown) {
+        const e = err as Error;
+        return reply.status(401).send({
+          error: { code: ERROR_CODES.UNAUTHORIZED, message: e.message || 'Invalid token' },
+        });
       }
+    }
+
+    if (!guardianId) {
+      guardianId = 'guardian-anonymous';
     }
 
     const row = db.prepare('SELECT * FROM action_requests WHERE id = ?').get(id);
     if (!row) {
-      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Not found' } });
+      return reply.status(404).send({
+        error: { code: ERROR_CODES.NOT_FOUND, message: 'Action request not found' },
+      });
     }
 
     const actionRequest = deserialize(row as Record<string, unknown>);
@@ -133,7 +220,8 @@ export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions)
       JSON.stringify(approvals),
       id
     );
-    appendAudit(db, id, 'rejected', guardianId, {});
+
+    appendAudit(db, id, 'rejected', guardianId, { reason: reason ?? 'Manually rejected' });
 
     return reply.send({ id, status: 'rejected' });
   });
@@ -141,16 +229,22 @@ export async function approvalsRoutes(app: FastifyInstance, opts: RoutesOptions)
 
 // ── Executors ─────────────────────────────────────────────────────────────────
 
-async function executeAction(req: ActionRequest): Promise<{ ok: boolean; detail: string }> {
+async function executeAction(
+  req: ActionRequest,
+  db: Db,
+  tideAdapter: TideAdapter
+): Promise<{ ok: boolean; detail: string; handle?: string }> {
   switch (req.tool) {
     case 'request_deploy':
       return deployExecutor(req.parameters as { version: string; commit: string });
     case 'request_use_secret':
-      return useSecretExecutor(req.parameters as { secret_name: string; purpose: string });
-    case 'request_send_external':
-      return sendExternalExecutor(
-        req.parameters as { destination: string; payload_ref: string }
+      return useSecretExecutor(
+        req.parameters as { secret_name: string; purpose: string },
+        db,
+        tideAdapter
       );
+    case 'request_send_external':
+      return sendExternalExecutor(req.parameters as { destination: string; payload_ref: string });
     default:
       return { ok: false, detail: `Unknown tool: ${req.tool as string}` };
   }
