@@ -4,6 +4,8 @@ build/
 .env
 *.env.local
 *.db
+*.db.json
+packages/gateway/data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

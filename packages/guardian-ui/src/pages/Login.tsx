@@ -80,22 +80,43 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           <p style={{ color: 'var(--text-muted)', fontSize: '0.925rem', lineHeight: 1.5 }}>
             Key-Holder Gateway • Emergent Authority via N-of-M Quorum
           </p>
+          <div style={{ marginTop: '0.75rem' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.35rem 0.75rem',
+                background: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid #ef4444',
+                borderRadius: '9999px',
+                color: '#f87171',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+              }}
+            >
+              ⚠️ MOCK LOGIN — SIMULATED IDENTITY
+            </span>
+          </div>
         </div>
 
         {/* Auth Boundary Notice */}
         <div
           style={{
             padding: '0.75rem 1rem',
-            background: 'rgba(99, 102, 241, 0.08)',
-            border: '1px solid rgba(99, 102, 241, 0.25)',
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
             borderRadius: '8px',
             marginBottom: '1.5rem',
             fontSize: '0.8rem',
-            color: '#c7d2fe',
+            color: '#fca5a5',
+            lineHeight: 1.45,
           }}
         >
-          <strong>🔒 Auth Module Boundary:</strong> Currently simulating TideCloak guardian
-          identity. In Phase 2, this boundary connects directly to TideCloak OIDC realm.
+          <strong>⚠️ MOCK LOGIN:</strong> TideCloak dev container is offline on this host. Guardian
+          sessions are simulated for UI demo purposes and must not be presented as genuine Tide authentication.
         </div>
 
         <form onSubmit={handleSubmit}>

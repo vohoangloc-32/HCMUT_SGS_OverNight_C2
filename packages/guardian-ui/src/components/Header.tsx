@@ -146,6 +146,23 @@ export const Header: React.FC<HeaderProps> = ({
                 </option>
               ))}
             </select>
+
+            <span
+              style={{
+                background: 'rgba(239, 68, 68, 0.18)',
+                border: '1px solid rgba(239, 68, 68, 0.45)',
+                color: '#fca5a5',
+                padding: '0.15rem 0.45rem',
+                borderRadius: '4px',
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+                whiteSpace: 'nowrap',
+              }}
+              title="Simulated Guardian Session (TideCloak dev container is offline)"
+            >
+              MOCK LOGIN
+            </span>
           </div>
 
           <button

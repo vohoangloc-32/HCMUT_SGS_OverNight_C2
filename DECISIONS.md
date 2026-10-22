@@ -89,6 +89,12 @@
 - **Decision**: Executors call fake-production and fake-external servers; read from fake-secrets.txt.
 - **Impact**: Demonstrates the flow; no real side effects.
 
+### [FAKED / LABELED] F-03 — Guardian UI Mock Login
+- **Evidence**: TideCloak dev container is offline on the demo host (Docker engine unavailable). Real OIDC flow requires live Keycloak/TideCloak container with Web Enclave.
+- **Decision**: Maintain simulated guardian sessions in `packages/guardian-ui/src/auth/` clearly labeled with visible `MOCK LOGIN` pills across the UI (`Login.tsx`, `Header.tsx`) and in README. Never present fake login as real Tide authentication.
+- **Impact**: Enables smooth multi-guardian demo interactions (switching between Alice, Bob, Carol) without hard runtime Docker dependencies.
+- **Owner**: P2
+
 ---
 
 ## Open Questions Status

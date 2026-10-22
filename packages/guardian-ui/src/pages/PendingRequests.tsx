@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import type { ActionRequest, Approval, Status } from '@key-holder/shared';
 import { RiskBadge } from '../components/RiskBadge';
+import { DemoScenariosBar } from '../components/DemoScenariosBar';
+import { authService } from '../auth';
 
 interface PendingRequestsProps {
   actions: ActionRequest[];
@@ -109,6 +111,13 @@ export const PendingRequests: React.FC<PendingRequestsProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Interactive Demo Showcase Bar for Judges & Presentations */}
+      <DemoScenariosBar
+        onRefresh={async () => onRefresh()}
+        onSelectAction={onSelectAction}
+        currentGuardian={authService.getCurrentSession().user.id}
+      />
 
       {/* Filter Tabs */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>

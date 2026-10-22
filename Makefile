@@ -1,4 +1,4 @@
-.PHONY: setup dev lint typecheck test demo-1 demo-2 demo-3 demo-4 demo-5 reset docker-up docker-down
+.PHONY: setup dev lint typecheck test demo demo-1 demo-2 demo-3 demo-4 demo-5 reset docker-up docker-down
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 setup:
@@ -63,8 +63,17 @@ demo-5:
 	@echo "==> Scenario 5 (stretch): Parameter swap after approval"
 	bash scripts/scenario-5-param-swap.sh
 
+# ── Demo Recording Launcher ───────────────────────────────────────────────────
+demo: reset
+	@echo "==> Starting Key-Holder Gateway complete demo environment for recording..."
+	@echo "    - Gateway on http://localhost:3001"
+	@echo "    - Guardian UI on http://localhost:5173"
+	@echo "    - Fake Production on http://localhost:4001/viewer"
+	@echo "    - Fake External on http://localhost:4002/viewer"
+	npm run demo
+
 # ── Reset ─────────────────────────────────────────────────────────────────────
 reset:
 	@echo "==> Resetting demo state (deletes DB and docker volumes)..."
 	rm -f packages/gateway/data/gateway.db packages/gateway/data/gateway.db.json
-	@echo "==> Reset complete. Run 'make setup && make docker-up' to restart."
+	@echo "==> Reset complete."

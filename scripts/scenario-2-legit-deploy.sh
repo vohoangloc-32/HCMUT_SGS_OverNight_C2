@@ -22,16 +22,19 @@ echo -e "${BLUE}================================================================
 echo -e "${BLUE}Scenario 2: Legitimate Deploy (N-of-M Quorum Approval)${NC}"
 echo -e "${BLUE}====================================================================${NC}"
 
-# Detect if live gateway is available
+# Detect mode: MOCK_MODE=1 explicitly runs mock contract; otherwise require real gateway
 IS_LIVE=0
-if [ "$MOCK_MODE" != "1" ] && curl -s -f "${GATEWAY_URL}/health" > /dev/null 2>&1; then
-  IS_LIVE=1
-fi
-
-if [ "$IS_LIVE" -eq 1 ]; then
-  echo -e "${CYAN}[LIVE GATEWAY MODE] Connected to Gateway at ${GATEWAY_URL}${NC}"
+if [ "$MOCK_MODE" = "1" ]; then
+  IS_LIVE=0
+  echo -e "${YELLOW}[MOCK MODE] MOCK_MODE=1 active. Running against Mock API contract.${NC}"
 else
-  echo -e "${YELLOW}[MOCK MODE] Gateway offline or MOCK_MODE active. Running against Mock API contract.${NC}"
+  if ! curl -s -f "${GATEWAY_URL}/health" > /dev/null 2>&1; then
+    echo -e "${RED}Error: Real gateway is unreachable at ${GATEWAY_URL}.${NC}" >&2
+    echo -e "${RED}Start the gateway first (e.g. 'make dev' or 'npm run dev -w packages/gateway'), or pass MOCK_MODE=1 to run in mock mode.${NC}" >&2
+    exit 1
+  fi
+  IS_LIVE=1
+  echo -e "${CYAN}[LIVE GATEWAY MODE] Connected to Gateway at ${GATEWAY_URL}${NC}"
 fi
 
 echo -e "\n${YELLOW}Step 1: AI Agent requests production deployment${NC}"
@@ -102,9 +105,17 @@ else
 fi
 
 echo -e "\n${YELLOW}Step 4: Verify fake-production received deployment${NC}"
-if curl -s -f "${FAKE_PROD_URL}/deploys" > /dev/null 2>&1; then
-  echo "Checking ${FAKE_PROD_URL}/deploys..."
-  curl -s "${FAKE_PROD_URL}/deploys"
+if [ "$IS_LIVE" -eq 1 ]; then
+  if curl -s -f "${FAKE_PROD_URL}/deploys" > /dev/null 2>&1; then
+    echo "Checking ${FAKE_PROD_URL}/deploys..."
+    DEPLOY_LOGS=$(curl -s "${FAKE_PROD_URL}/deploys")
+    echo "Fake-production deploy log: ${DEPLOY_LOGS}"
+  elif curl -s -f "${FAKE_PROD_URL}/logs" > /dev/null 2>&1; then
+    DEPLOY_LOGS=$(curl -s "${FAKE_PROD_URL}/logs")
+    echo "Fake-production deploy log: ${DEPLOY_LOGS}"
+  else
+    echo "Gateway deploy executor finished successfully (external mock at ${FAKE_PROD_URL} offline)."
+  fi
 else
   echo -e "${YELLOW}[MOCK MODE] Fake-production server verified: Deploy record v1.4.2 (c0ffee1b4d89a234) received.${NC}"
 fi

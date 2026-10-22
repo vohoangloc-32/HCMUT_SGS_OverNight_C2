@@ -8,7 +8,9 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "dev": "concurrently \"npm run dev -w packages/gateway\" \"npm run dev -w packages/mcp-server\" \"npm run dev -w packages/guardian-ui\"",
+    "dev": "concurrently \"npm run dev -w packages/gateway\" \"npm run dev -w packages/mcp-server\" \"npm run dev -w packages/guardian-ui\" \"node mock-env/fake-production/server.js\" \"node mock-env/fake-external/server.js\"",
+    "demo": "concurrently -k -n \"gateway,ui,fake-prod,fake-ext\" -c \"blue,cyan,green,yellow\" \"npm run dev -w packages/gateway\" \"npm run dev -w packages/guardian-ui\" \"node mock-env/fake-production/server.js\" \"node mock-env/fake-external/server.js\"",
+    "start": "npm run dev",
     "lint": "eslint \"packages/*/src/**/*.{ts,tsx}\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
