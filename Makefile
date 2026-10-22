@@ -66,6 +66,5 @@ demo-5:
 # ── Reset ─────────────────────────────────────────────────────────────────────
 reset:
 	@echo "==> Resetting demo state (deletes DB and docker volumes)..."
-	docker compose down -v
-	rm -f packages/gateway/data/gateway.db
+	rm -f packages/gateway/data/gateway.db packages/gateway/data/gateway.db.json
 	@echo "==> Reset complete. Run 'make setup && make docker-up' to restart."

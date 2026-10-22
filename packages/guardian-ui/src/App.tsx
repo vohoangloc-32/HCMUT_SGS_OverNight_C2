@@ -9,6 +9,7 @@ import {
   setForceMock,
   isMockModeActive,
 } from './api';
+import { authService, type AuthSession } from './auth';
 import { Header } from './components/Header';
 import { Login } from './pages/Login';
 import { PendingRequests } from './pages/PendingRequests';
@@ -16,8 +17,8 @@ import { RequestDetail } from './pages/RequestDetail';
 import { AuditLog } from './pages/AuditLog';
 
 export const App: React.FC = () => {
+  const [session, setSession] = useState<AuthSession>(authService.getCurrentSession());
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
-  const [currentGuardian, setCurrentGuardian] = useState<string>('guardian-alice');
   const [currentTab, setCurrentTab] = useState<'requests' | 'audit' | 'detail'>('requests');
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
 
@@ -25,8 +26,19 @@ export const App: React.FC = () => {
   const [selectedAction, setSelectedAction] = useState<ActionRequest | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const [isMock, setIsMock] = useState<boolean>(false);
-  const [notification, setNotification] = useState<string | null>(null);
+  const [isMock, setIsMock] = useState<boolean>(isMockModeActive());
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  useEffect(() => {
+    return authService.onAuthStateChanged((newSession) => {
+      if (newSession) {
+        setSession(newSession);
+        setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
+      }
+    });
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -52,10 +64,9 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     loadData();
-    // Refresh periodically
     const timer = setInterval(() => {
       loadData();
-    }, 5000);
+    }, 6000);
     return () => clearInterval(timer);
   }, [loadData]);
 
@@ -79,30 +90,44 @@ export const App: React.FC = () => {
   };
 
   const handleApprove = async (id: string, hash: string) => {
-    const res = await approveAction(id, currentGuardian, hash);
+    const res = await approveAction(id, session.user.id, hash);
     if (res.success) {
-      setNotification(`✓ Approved action ${id.slice(0, 8)}... by ${currentGuardian}`);
-      setTimeout(() => setNotification(null), 4000);
+      setNotification({
+        message: `✓ Approved action ${id.slice(0, 10)}... by ${session.user.name} (${session.user.role.split(' ')[0]})`,
+        type: 'success',
+      });
+      setTimeout(() => setNotification(null), 5000);
       await loadData();
       if (res.data) {
         setSelectedAction(res.data);
       }
     } else {
-      alert(`Approval failed: ${res.error}`);
+      setNotification({
+        message: `Approval failed: [${res.errorCode ?? 'ERROR'}] ${res.error}`,
+        type: 'error',
+      });
+      setTimeout(() => setNotification(null), 7000);
     }
   };
 
   const handleReject = async (id: string, reason?: string) => {
-    const res = await rejectAction(id, currentGuardian, reason);
+    const res = await rejectAction(id, session.user.id, reason);
     if (res.success) {
-      setNotification(`Action ${id.slice(0, 8)}... was rejected.`);
-      setTimeout(() => setNotification(null), 4000);
+      setNotification({
+        message: `Action ${id.slice(0, 10)}... was rejected by ${session.user.name}.`,
+        type: 'info',
+      });
+      setTimeout(() => setNotification(null), 5000);
       await loadData();
       if (res.data) {
         setSelectedAction(res.data);
       }
     } else {
-      alert(`Rejection failed: ${res.error}`);
+      setNotification({
+        message: `Rejection failed: [${res.errorCode ?? 'ERROR'}] ${res.error}`,
+        type: 'error',
+      });
+      setTimeout(() => setNotification(null), 7000);
     }
   };
 
@@ -110,7 +135,7 @@ export const App: React.FC = () => {
     return (
       <Login
         onLogin={(guardianId) => {
-          setCurrentGuardian(guardianId);
+          authService.login(guardianId);
           setIsAuthenticated(true);
         }}
       />
@@ -125,33 +150,39 @@ export const App: React.FC = () => {
           setCurrentTab(tab);
           setSelectedActionId(null);
         }}
-        currentGuardian={currentGuardian}
-        setCurrentGuardian={setCurrentGuardian}
+        currentGuardian={session.user.id}
+        setCurrentGuardian={async (newId) => {
+          await authService.login(newId);
+        }}
         isMock={isMock}
         toggleMock={handleToggleMock}
-        onLogout={() => setIsAuthenticated(false)}
+        onLogout={async () => {
+          await authService.logout();
+          setIsAuthenticated(false);
+        }}
       />
 
       <main className="main-content">
         {/* Mock mode banner */}
         {isMock && (
-          <div className="banner banner-mock">
+          <div className="banner banner-mock" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <strong>🟡 Running in Demo Mock Mode:</strong> Using pre-seeded canned requests and audit events because the live Gateway is either not running or Mock Mode is toggled.
+              <strong>🟡 Demo Mock Mode Active:</strong> Consuming canned mock dataset. Actions and audit events operate deterministically in-memory.
             </div>
             <button
               onClick={handleToggleMock}
               style={{
                 background: 'rgba(255,255,255,0.15)',
-                border: 'none',
+                border: '1px solid rgba(255,255,255,0.2)',
                 color: 'inherit',
-                padding: '0.25rem 0.6rem',
-                borderRadius: '4px',
+                padding: '0.35rem 0.75rem',
+                borderRadius: '6px',
                 cursor: 'pointer',
-                fontSize: '0.75rem',
+                fontSize: '0.8rem',
+                fontWeight: 600,
               }}
             >
-              Try Live Gateway
+              Connect to Live Gateway
             </button>
           </div>
         )}
@@ -160,17 +191,42 @@ export const App: React.FC = () => {
         {notification && (
           <div
             style={{
-              padding: '0.75rem 1rem',
-              marginBottom: '1rem',
+              padding: '0.85rem 1.25rem',
+              marginBottom: '1.25rem',
               borderRadius: '8px',
-              background: 'rgba(16, 185, 129, 0.15)',
-              border: '1px solid #10b981',
-              color: '#10b981',
+              background:
+                notification.type === 'success'
+                  ? 'rgba(16, 185, 129, 0.15)'
+                  : notification.type === 'error'
+                  ? 'rgba(239, 68, 68, 0.15)'
+                  : 'rgba(59, 130, 246, 0.15)',
+              border: `1px solid ${
+                notification.type === 'success'
+                  ? '#10b981'
+                  : notification.type === 'error'
+                  ? '#ef4444'
+                  : '#3b82f6'
+              }`,
+              color:
+                notification.type === 'success'
+                  ? '#10b981'
+                  : notification.type === 'error'
+                  ? '#f87171'
+                  : '#60a5fa',
               fontWeight: 600,
-              fontSize: '0.875rem',
+              fontSize: '0.9rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
             }}
           >
-            {notification}
+            <div>{notification.message}</div>
+            <button
+              onClick={() => setNotification(null)}
+              style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '1rem' }}
+            >
+              ✕
+            </button>
           </div>
         )}
 
@@ -183,10 +239,11 @@ export const App: React.FC = () => {
           />
         )}
 
-        {currentTab === 'detail' && selectedAction && (
+        {currentTab === 'detail' && (
           <RequestDetail
             action={selectedAction}
-            currentGuardian={currentGuardian}
+            currentGuardian={session.user.id}
+            loading={loading && !selectedAction}
             onBack={() => setCurrentTab('requests')}
             onApprove={handleApprove}
             onReject={handleReject}
@@ -205,4 +262,5 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
 export default App;
