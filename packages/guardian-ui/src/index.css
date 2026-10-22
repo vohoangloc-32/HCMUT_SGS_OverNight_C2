@@ -272,12 +272,18 @@ code, pre {
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
+.badge-expired {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
 .badge-risk {
   color: var(--risk-high);
   background: var(--risk-high-bg);
   border: 1px solid rgba(244, 63, 94, 0.3);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
 }
 
 /* Table Styles */
