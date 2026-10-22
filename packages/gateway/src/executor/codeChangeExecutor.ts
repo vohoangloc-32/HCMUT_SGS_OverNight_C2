@@ -199,7 +199,8 @@ export async function codeChangeExecutor(
   const patchFile = join(tmpDir, `patch-${randomBytes(8).toString('hex')}.diff`);
 
   try {
-    writeFileSync(patchFile, patch, 'utf-8');
+    const normalizedPatch = patch.endsWith('\n') ? patch : patch + '\n';
+    writeFileSync(patchFile, normalizedPatch, 'utf-8');
 
     // 5. git apply --check
     try {

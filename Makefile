@@ -65,11 +65,11 @@ demo-5:
 
 demo-a:
 	@echo "==> Scenario A: Real code change (fix off-by-one bug & merge)"
-	bash scripts/real-code-change.sh
+	node scripts/real-code-change.js
 
 demo-b:
 	@echo "==> Scenario B: Real code injection defense (risk signals & veto)"
-	bash scripts/real-code-injection.sh
+	node scripts/real-code-injection.js
 
 # ── Demo Recording Launcher ───────────────────────────────────────────────────
 demo: reset
@@ -82,6 +82,6 @@ demo: reset
 
 # ── Reset ─────────────────────────────────────────────────────────────────────
 reset:
-	@echo "==> Resetting demo state (deletes DB and docker volumes)..."
-	rm -f packages/gateway/data/gateway.db packages/gateway/data/gateway.db.json
-	@echo "==> Reset complete."
+	@echo "==> Resetting demo state..."
+	node scripts/reset.js
+

@@ -30,6 +30,11 @@ if ! curl -s -f "${GATEWAY_URL}/health" > /dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo -e "${YELLOW}Note: 'jq' not found in PATH. Running cross-platform Node runner...${NC}"
+  exec node scripts/real-code-change.js
+fi
+
 echo -e "\n${YELLOW}Step 1: Inspect baseline state of protected repo (has failing test)${NC}"
 curl -s "${GATEWAY_URL}/repo/log" | jq . || curl -s "${GATEWAY_URL}/repo/log"
 
@@ -51,7 +56,8 @@ PATCH="diff --git a/src/discount.js b/src/discount.js
 +  if (loyaltyPoints >= 20) {
      return 10;
    }
-   if (loyaltyPoints >= 5) {"
+   if (loyaltyPoints >= 5) {
+"
 
 echo "$PATCH"
 

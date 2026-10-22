@@ -30,6 +30,11 @@ if ! curl -s -f "${GATEWAY_URL}/health" > /dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo -e "${YELLOW}Note: 'jq' not found in PATH. Running cross-platform Node runner...${NC}"
+  exec node scripts/real-code-injection.js
+fi
+
 BASE_SHA=$(curl -s "${GATEWAY_URL}/repo/log" | jq -r '.head // empty')
 if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "unknown" ]; then
   BASE_SHA=$(git -C "$PROTECTED_REPO_PATH" rev-parse HEAD 2>/dev/null || echo "c0ffee1")
